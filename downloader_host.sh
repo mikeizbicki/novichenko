@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -e
+
 # load environment variables
 while read var; do
     export $var

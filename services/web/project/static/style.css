@@ -87,7 +87,18 @@ button:hover {
     /*background-color: #eef;*/
 }
 
+.result_description {
+  margin-left: 1em;
+}
+
 .result_title {
+  margin-left: 1em;
   white-space: nowrap;
+  overflow: hidden;
+}
+
+.result_host {
+  white-space: nowrap;
+  font-variant: small-caps;
   overflow: hidden;
 }

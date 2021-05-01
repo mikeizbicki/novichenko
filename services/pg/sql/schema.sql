@@ -1,6 +1,3 @@
--- FIXME: preprocessor directives control how much of the system to build
--- EXEC SQL DEFINE ALLROLLUPS;
-
 -- tablespaces cannot be created within a transaction
 CREATE TABLESPACE fastdata LOCATION '/fastdata';
 
@@ -58,6 +55,78 @@ BEGIN
     RETURN SUBSTRING(t FOR 2048);
 END
 $$;
+
+/*
+ * extract all of the ngrams out of a tsvector
+ *
+ * FIXME:
+ * This implementation is not particularly efficient:
+ * It performs multiple passes over the data and has unneeded sort operations.
+ * This appears to be necessary for a SQL implementation of this function.
+ * A native-C implementation is likely able to avoid these issues.
+ * In theory, this should be computable with only a single pass over the tsvector.
+ */
+CREATE OR REPLACE FUNCTION tsvector_to_ngrams(tsv tsvector)
+RETURNS TABLE(lexeme TEXT) LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+AS $$
+WITH cte AS (
+SELECT
+    lexeme,
+    unnest(positions) AS positions
+FROM unnest(tsv)
+ORDER BY positions
+)
+SELECT DISTINCT lexeme
+FROM (
+    SELECT lexeme
+    FROM cte
+    UNION
+    SELECT 
+        CASE WHEN lag(positions,1) OVER (ORDER BY positions) = positions-1
+             THEN lag(lexeme,1) OVER (ORDER BY positions) || ' ' || lexeme 
+             ELSE NULL
+             END
+             AS "2gram"
+    FROM cte
+    UNION
+    SELECT
+        CASE WHEN lag(positions,1) OVER (ORDER BY positions) = positions-1 AND lag(positions,2) OVER (ORDER BY positions) = positions-2
+             THEN lag(lexeme,2) OVER (ORDER BY positions) || ' ' || lag(lexeme,1) OVER (ORDER BY positions) || ' ' || lexeme 
+             WHEN lag(positions,1) OVER (ORDER BY positions) = positions-2
+             THEN lag(lexeme,1) OVER (ORDER BY positions) || ' ' || '_' || ' ' || lexeme 
+             ELSE NULL
+             END
+        AS "3gram"
+    FROM cte
+)t
+WHERE lexeme IS NOT NULL;
+$$;
+
+/*
+WITH cte AS (
+SELECT
+    lexeme,
+    unnest(positions) AS positions
+--FROM unnest(tsv)
+FROM unnest(to_tsvector('fancy apple pie crust is the most delicious food item that I have ever eaten.'))
+)
+SELECT
+    positions,
+    lexeme AS "1gram",
+    CASE WHEN lag(positions,1) OVER (ORDER BY positions) = positions-1
+         THEN lag(lexeme,1) OVER (ORDER BY positions) || ' ' || lexeme 
+         ELSE NULL
+         END
+         AS "2gram",
+    CASE WHEN lag(positions,1) OVER (ORDER BY positions) = positions-1 AND lag(positions,2) OVER (ORDER BY positions) = positions-2
+         THEN lag(lexeme,2) OVER (ORDER BY positions) || ' ' || lag(lexeme,1) OVER (ORDER BY positions) || ' ' || lexeme 
+         WHEN lag(positions,1) OVER (ORDER BY positions) = positions-2
+         THEN lag(lexeme,1) OVER (ORDER BY positions) || ' ' || '_' || ' ' || lexeme 
+         ELSE NULL
+         END
+         AS "3gram"
+FROM cte;
+*/
 
 /*******************************************************************************
  * functions for extracting the components of a url stored as text
@@ -418,6 +487,63 @@ $$ LANGUAGE plpgsql;
  ******************************************************************************/
 
 /*
+ * stores information about iso639-3 language codes
+ */
+CREATE TABLE iso639 (
+    part3       CHAR(3) UNIQUE NOT NULL,
+    part2b      CHAR(3) UNIQUE,
+    part2t      CHAR(3) UNIQUE,
+    part1       CHAR(2) UNIQUE,
+    scope       CHAR(1) NOT NULL, -- I(ndividual), M(acrolanguage), S(pecial)
+    type        CHAR(1) NOT NULL, -- A(ncient), C(onstructed), E(xtinct), H(istorical), L(iving), S(pecial)
+    ref_name    TEXT UNIQUE NOT NULL,
+    comment     TEXT
+);
+COPY iso639 FROM '/tmp/data/iso639/iso-639-3.tab' DELIMITER E'\t' CSV HEADER;
+
+CREATE OR REPLACE FUNCTION language_iso639(language TEXT)
+RETURNS TEXT LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE
+AS $$
+DECLARE
+    language_simplified TEXT = LOWER(TRIM( E'"'' \t:-_,\n' FROM language));
+    ret TEXT;
+BEGIN
+    /*
+    IF LENGTH(language_simplified) = 2 OR SUBSTRING(language_simplified, 3, 1) IN (':','_','-',' ') THEN
+        SELECT part3 INTO ret FROM iso639 WHERE part1 = SUBSTRING(language_simplified, 1, 2);
+        RETURN COALESCE(ret,'invalid');
+    ELSIF LENGTH(language_simplified) = 3 OR SUBSTRING(language_simplified, 4, 1) IN (':','_','-',' ') THEN
+        RETURN SUBSTRING(language_simplified, 1, 3);
+    ELSE 
+        SELECT part3 INTO ret FROM iso639 WHERE lower(ref_name) = language_simplified;
+        RETURN COALESCE(ret,'invalid');
+    END IF;
+    */
+    RETURN CASE
+        WHEN LENGTH(language_simplified) <= 3 THEN language_simplified
+        WHEN SUBSTRING(language_simplified, 3, 1) IN (':','_','-',' ') THEN SUBSTRING(language_simplified, 1, 2)
+        WHEN SUBSTRING(language_simplified, 4, 1) IN (':','_','-',' ') THEN SUBSTRING(language_simplified, 1, 3)
+        ELSE 'invalid'
+        END;
+END 
+$$;
+do $$
+BEGIN
+    assert( language_iso639('aat') = 'aat');
+    assert( language_iso639('EN   ') = 'en');
+    assert( language_iso639('en:   ') = 'en');
+    assert( language_iso639('"en"') = 'en');
+    assert( language_iso639('en:us') = 'en');
+    assert( language_iso639('EN-us') = 'en');
+    assert( language_iso639('en_us') = 'en');
+    assert( language_iso639('eng:us') = 'eng');
+    assert( language_iso639('eNG-us') = 'eng');
+    assert( language_iso639('eng_us') = 'eng');
+    assert( language_iso639('english') = 'invalid');
+END;
+$$ LANGUAGE plpgsql;
+
+/*
  * stores the information about metahtml's test cases
  */
 CREATE TABLE metahtml_test (
@@ -426,7 +552,7 @@ CREATE TABLE metahtml_test (
 );
 COPY metahtml_test(jsonb) FROM '/tmp/metahtml/golden.jsonl';
 
-CREATE VIEW metahtml_test_summary AS (
+CREATE MATERIALIZED VIEW metahtml_test_summary AS (
     SELECT
         hll_count(jsonb->>'url') AS url,
         hll_count(url_hostpathquery_key(jsonb->>'url')) AS hostpathquery,
@@ -435,7 +561,7 @@ CREATE VIEW metahtml_test_summary AS (
     FROM metahtml_test
 );
 
-CREATE VIEW metahtml_test_summary_host AS (
+CREATE MATERIALIZED VIEW metahtml_test_summary_host AS (
     SELECT
         url_host_key(jsonb->>'url') AS host,
         hll_count(jsonb->>'url') AS url,
@@ -445,27 +571,33 @@ CREATE VIEW metahtml_test_summary_host AS (
     GROUP BY host
 );
 
-CREATE VIEW metahtml_test_summary_language AS (
+CREATE MATERIALIZED VIEW metahtml_test_summary_language AS (
     SELECT
-        jsonb->>'language' AS language,
+        language_iso639(jsonb->>'language'),
         hll_count(jsonb->>'url') AS url,
         hll_count(url_hostpathquery_key(jsonb->>'url')) AS hostpathquery,
         hll_count(url_hostpath_key(jsonb->>'url')) AS hostpath,
         hll_count(url_host_key(jsonb->>'url')) AS host
     FROM metahtml_test
-    GROUP BY language
+    GROUP BY language_iso639
 );
 
-CREATE VIEW metahtml_test_summary_language_iso2 AS (
-    SELECT
-        substring(jsonb->>'language' from 1 for 2) AS language_iso2,
-        hll_count(jsonb->>'url') AS url,
-        hll_count(url_hostpathquery_key(jsonb->>'url')) AS hostpathquery,
-        hll_count(url_hostpath_key(jsonb->>'url')) AS hostpath,
-        hll_count(url_host_key(jsonb->>'url')) AS host
-    FROM metahtml_test
-    GROUP BY language_iso2
+/*
+ * stores website rank information
+ */
+CREATE TABLE top_1m_alexa (
+    rank INTEGER,
+    host TEXT
 );
+COPY top_1m_alexa FROM '/tmp/data/top-1m-alexa/top-1m.csv' DELIMITER ',' CSV HEADER;
+CREATE INDEX top_1m_alexa_idx ON top_1m_alexa(url_host_key(host),rank);
+
+CREATE TABLE top_1m_opendns (
+    rank INTEGER,
+    host TEXT
+);
+COPY top_1m_opendns FROM '/tmp/data/top-1m-opendns/top-1m.csv' DELIMITER ',' CSV HEADER;
+CREATE INDEX top_1m_opendns_idx ON top_1m_opendns(url_host_key(host),rank);
 
 /*
  * stores manually annotated information about hostnames
@@ -483,7 +615,7 @@ CREATE TABLE hostnames (
 COPY hostnames(hostname,priority,name_native,name_latin,country,language,type) FROM '/tmp/data/hostnames.csv' DELIMITER ',' CSV HEADER;
 
 CREATE VIEW hostnames_untested AS (
-    SELECT hostname,country,language
+    SELECT url_host_key(hostname)
     FROM hostnames
     WHERE
         COALESCE(priority,'') != 'ban' AND
@@ -664,9 +796,10 @@ CREATE TABLE metahtml (
     content tsvector
 );
 
--- rollups for tracking debug info for the metahtml library
 
--- EXEC SQL IFDEF ALL_ROLLUPS;
+--------------------------------------------------------------------------------
+-- rollups for tracking debug info
+
 CREATE MATERIALIZED VIEW metahtml_versions AS (
     SELECT 
         jsonb->>'version' AS version,
@@ -691,197 +824,8 @@ CREATE MATERIALIZED VIEW metahtml_exceptions_host AS (
     FROM metahtml
     GROUP BY host,type,location
 );
--- EXEC SQL ENDIF;
 
--- rollup tables for measuring links/pagerank
-
--- FIXME:
--- add an index for finding backlinks
---
---FIXME: these should be in the distincts
---jsonb_array_elements(jsonb->'links.all'->'best'->'value')->>'href' AS dest_url,
---url_hostpathquery_key(jsonb_array_elements(jsonb->'links.all'->'best'->'value')->>'href') AS dest_hostpathquery,
---url_hostpath_key(jsonb_array_elements(jsonb->'links.all'->'best'->'value')->>'href') AS dest_hostpath
-
--- EXEC SQL IFDEF ALLROLLUPS;
-CREATE MATERIALIZED VIEW metahtml_linksall_host AS (
-    SELECT
-        url_host(url) AS src,
-        url_host(jsonb_array_elements(jsonb->'links.all'->'best'->'value')->>'href') AS dest,
-        hll_count(url) AS src_url,
-        hll_count(url_hostpathquery_key(url)) AS src_hostpathquery,
-        hll_count(url_hostpath_key(url)) AS src_hostpath
-    FROM metahtml
-    GROUP BY src,dest
-);
-
-CREATE MATERIALIZED VIEW metahtml_linkscontent_host AS (
-    SELECT
-        url_host(url) AS src,
-        url_host(jsonb_array_elements(jsonb->'links.content'->'best'->'value')->>'href') AS dest,
-        hll_count(url) AS src_url,
-        hll_count(url_hostpathquery_key(url)) AS src_hostpathquery,
-        hll_count(url_hostpath_key(url)) AS src_hostpath
-    FROM metahtml
-    GROUP BY src,dest
-);
-
-/*
--- FIXME:
--- we should add filtering onto this so that we only record exact pagerank details for a small subset of links
-CREATE MATERIALIZED VIEW metahtml_linksall_hostpath AS (
-    SELECT
-        url_hostpath_key(url) AS src,
-        url_hostpath_key(jsonb_array_elements(jsonb->'links.all'->'best'->'value')->>'href') AS dest,
-        count(*)
-    FROM metahtml
-);
-
-CREATE MATERIALIZED VIEW metahtml_linkscontent_hostpath AS (
-    SELECT
-        url_hostpath_key(url) AS src,
-        url_hostpath_key(jsonb_array_elements(jsonb->'links.content'->'best'->'value')->>'href') AS dest,
-        count(*)
-    FROM metahtml
-);
-*/
-
--- EXEC SQL ENDIF;
-
--- rollups for text
-
--- EXEC SQL IFDEF ALLROLLUPS;
-
-CREATE MATERIALIZED VIEW metahtml_rollup_texthostmonth TABLESPACE fastdata AS (
-    SELECT
-        unnest(tsvector_to_array(title || content)) AS alltext,
-        url_host(url) AS host,
-        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY alltext,host,timestamp_published
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_textmonth TABLESPACE fastdata AS (
-    SELECT
-        unnest(tsvector_to_array(title || content)) AS alltext,
-        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY alltext,timestamp_published
-);
-
--- EXEC SQL ENDIF;
-
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth TABLESPACE fastdata AS (
-    SELECT
-        unnest(tsvector_to_array(title || content)) AS alltext,
-        jsonb->'language'->'best'->>'value' AS language, 
-        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY alltext,language,timestamp_published
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_langmonth TABLESPACE fastdata AS (
-    SELECT
-        jsonb->'language'->'best'->>'value' AS language, 
-        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY language,timestamp_published
-);
-
--- other rollups
-
--- EXEC SQL IFDEF ALLROLLUPS;
-
-CREATE MATERIALIZED VIEW metahtml_rollup_langhost AS (
-    SELECT
-        url_host(url) AS host,
-        jsonb->'language'->'best'->>'value' AS language,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY host,language
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_lang AS (
-    SELECT
-        jsonb->'language'->'best'->>'value' AS language,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY language
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_source AS (
-    SELECT
-        id_source,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath,
-        hll_count(url_host_key(url)) AS host
-    FROM metahtml
-    GROUP BY id_source
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_type AS (
-    SELECT
-        jsonb->'type'->'best'->>'value' AS type,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY type
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_hosttype AS (
-    SELECT
-        url_host(url) AS host,
-        jsonb->'type'->'best'->>'value' AS type,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY host,type
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_host AS (
-    SELECT
-        url_host(url) AS host,
-        hll_count(id_source) AS id_source,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY host
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_hostaccess AS (
-    SELECT
-        url_host(url) AS host_key,
-        date_trunc('day', accessed_at) AS access_day,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
-        hll_count(url_hostpath_key(url)) AS hostpath
-    FROM metahtml
-    GROUP BY host_key,access_day
-);
-
--- EXEC SQL ENDIF;
-
-CREATE MATERIALIZED VIEW metahtml_rollup_insert AS (
+CREATE MATERIALIZED VIEW metahtml_insert AS (
     SELECT
         date_trunc('hour', inserted_at) AS insert_hour,
         hll_count(id_source),
@@ -893,73 +837,182 @@ CREATE MATERIALIZED VIEW metahtml_rollup_insert AS (
     GROUP BY insert_hour
 );
 
--- EXEC SQL IFDEF ALLROLLUPS;
+--------------------------------------------------------------------------------
+-- rollups for pagerank
 
-CREATE MATERIALIZED VIEW metahtml_rollup_hostinsert AS (
+-- FIXME: we should hll_count the dest urls, but it doesn't work with set functions
+CREATE MATERIALIZED VIEW metahtml_linksall_host AS (
     SELECT
-        url_host(url) AS host_key,
-        date_trunc('hour', inserted_at) AS insert_hour,
-        hll_count(id_source),
+        url_host_key(url) AS src,
+        url_host_key(jsonb_array_elements(jsonb->'links.all'->'best'->'value')->>'href') AS dest,
+        hll_count(url) AS src_url,
+        hll_count(url_hostpathquery_key(url)) AS src_hostpathquery,
+        hll_count(url_hostpath_key(url)) AS src_hostpath
+    FROM metahtml
+    GROUP BY src,dest
+);
+
+/* FIXME: materialize this
+SELECT
+    dest,
+    sum(src_url             /COALESCE(rank,1000000)) as src_url,
+    sum(src_hostpathquery   /COALESCE(rank,1000000)) as src_hostpathquery,
+    sum(src_hostpath        /COALESCE(rank,1000000)) as src_hostpath,
+    sum(1                   /COALESCE(rank,1000000)) as src_host
+FROM metahtml_linksall_host
+LEFT JOIN top_1m_alexa ON (url_host_key(metahtml_linksall_host.src) = url_host_key(top_1m_alexa.host))
+GROUP BY dest
+ORDER BY src_host DESC;
+*/
+
+--------------------------------------------------------------------------------
+-- rollups for basic stats
+
+CREATE MATERIALIZED VIEW metahtml_hoststats AS (
+    SELECT
+        url_host_key(url) AS host,
+        jsonb->'language'->'best'->>'value' AS language,
+        hll_count(id_source) AS id_source,
+        hll_count(jsonb->'timestamp.published') AS timestamp_published,
+        hll_count(jsonb->'timestamp.modified') AS timestamp_modified,
         hll_count(url) AS url,
         hll_count(url_hostpathquery_key(url)) AS hostpathquery,
         hll_count(url_hostpath_key(url)) AS hostpath
     FROM metahtml
-    GROUP BY host_key,insert_hour
+    GROUP BY host,language
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_access AS (
+CREATE MATERIALIZED VIEW metahtml_hoststats_filtered AS (
     SELECT
-        date_trunc('day', accessed_at) AS access_day,
+        url_host_key(url) AS host,
+        jsonb->'language'->'best'->>'value' AS language,
+        hll_count(id_source) AS id_source,
+        hll_count(jsonb->'timestamp.published') AS timestamp_published,
+        hll_count(jsonb->'timestamp.modified') AS timestamp_modified,
         hll_count(url) AS url,
         hll_count(url_hostpathquery_key(url)) AS hostpathquery,
         hll_count(url_hostpath_key(url)) AS hostpath
     FROM metahtml
-    GROUP BY access_day
+    WHERE url ILIKE '%news%'
+       OR url ILIKE '%blog%'
+       OR url ILIKE '%article%'
+       OR url ILIKE '%archive%'
+    GROUP BY host,language
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_hostmonth AS (
+CREATE VIEW metahtml_langstats AS (
     SELECT
-        url_host(url) AS host,
+        language_iso639(language) AS language_iso639,
+        sum(timestamp_published) AS timestamp_published,
+        sum(timestamp_modified) AS timestamp_modified,
+        sum(url) AS url,
+        sum(hostpathquery) AS hostpathquery,
+        sum(hostpath) AS hostpath,
+        count(host) AS host
+    FROM metahtml_hoststats
+    GROUP BY language_iso639
+);
+
+CREATE VIEW hostnames_to_check AS (
+    SELECT 
+        host_unkey(host) as host,
+        language_iso639(language),
+        hostpath^1.5/(1+timestamp_published) as score,
+        timestamp_published,
+        hostpath
+    FROM metahtml_hoststats_filtered
+    WHERE host_unkey(host) NOT IN (SELECT host FROM metahtml_test_summary_host)
+    ORDER BY score DESC,host
+);
+
+CREATE VIEW hostnames_to_check_untested AS (
+    SELECT
+        host_unkey(untested.url_host_key) as host
+    FROM top_1m_alexa
+    RIGHT JOIN
+        (
+        SELECT * FROM hostnames_untested
+        UNION
+        SELECT * FROM allsides_untested
+        UNION
+        SELECT * FROM mediabiasfactcheck_untested
+        ) untested ON url_host_key(top_1m_alexa.host) = untested.url_host_key
+    ORDER BY rank ASC
+);
+
+--------------------------------------------------------------------------------
+-- rollups for text
+
+CREATE MATERIALIZED VIEW metahtml_rollup_content_textlangmonth TABLESPACE fastdata AS (
+    SELECT
+        tsvector_to_ngrams(content) AS alltext,
+        jsonb->'language'->'best'->>'value' AS language, 
         date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
         hll_count(url) AS url,
         hll_count(url_hostpathquery_key(url)) AS hostpathquery,
         hll_count(url_hostpath_key(url)) AS hostpath
     FROM metahtml
-    GROUP BY host,timestamp_published
+    GROUP BY alltext,language,timestamp_published
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_month TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_content_langmonth AS (
     SELECT
+        jsonb->'language'->'best'->>'value' AS language, 
         date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
         hll_count(url) AS url,
         hll_count(url_hostpathquery_key(url)) AS hostpathquery,
         hll_count(url_hostpath_key(url)) AS hostpath
     FROM metahtml
-    GROUP BY timestamp_published
+    WHERE length(content)>0
+    GROUP BY language,timestamp_published
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_pub AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_title_textlangmonth TABLESPACE fastdata AS (
     SELECT
-        date_trunc('day',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
+        tsvector_to_ngrams(title) AS alltext,
+        jsonb->'language'->'best'->>'value' AS language, 
+        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
         hll_count(url) AS url,
         hll_count(url_hostpathquery_key(url)) AS hostpathquery,
         hll_count(url_hostpath_key(url)) AS hostpath
     FROM metahtml
-    GROUP BY timestamp_published
+    GROUP BY alltext,language,timestamp_published
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_accesspub AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_title_langmonth AS (
     SELECT
-        date_trunc('day', accessed_at) AS access_day,
-        date_trunc('day',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
+        jsonb->'language'->'best'->>'value' AS language, 
+        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
         hll_count(url) AS url,
         hll_count(url_hostpathquery_key(url)) AS hostpathquery,
         hll_count(url_hostpath_key(url)) AS hostpath
     FROM metahtml
-    GROUP BY access_day, timestamp_published
+    WHERE length(title)>0
+    GROUP BY language,timestamp_published
 );
 
--- EXEC SQL ENDIF;
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth TABLESPACE fastdata AS (
+    SELECT
+        tsvector_to_ngrams(COALESCE(title || content, content, title)) AS alltext,
+        jsonb->'language'->'best'->>'value' AS language, 
+        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
+        hll_count(url) AS url,
+        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
+        hll_count(url_hostpath_key(url)) AS hostpath
+    FROM metahtml
+    GROUP BY alltext,language,timestamp_published
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langmonth AS (
+    SELECT
+        jsonb->'language'->'best'->>'value' AS language, 
+        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published,
+        hll_count(url) AS url,
+        hll_count(url_hostpathquery_key(url)) AS hostpathquery,
+        hll_count(url_hostpath_key(url)) AS hostpath
+    FROM metahtml
+    GROUP BY language,timestamp_published
+);
 
 /* indexes for text search of the form
 
@@ -974,33 +1027,16 @@ WHERE
     spacy_tsquery('en', 'covid');
 */
 
-CREATE INDEX metahtml_title_rumidx ON metahtml USING rum (title) TABLESPACE fastdata;
-CREATE INDEX metahtml_content_rumidx ON metahtml USING rum (content) TABLESPACE fastdata;
-/*
-CREATE INDEX metahtml_title_rumidx ON metahtml USING rum (
-    spacy_tsvector(
-        jsonb->'language'->'best'->>'value',
-        jsonb->'title'->'best'->>'value'
-    ));
-CREATE INDEX metahtml_content_rumidx ON metahtml USING rum (
-    spacy_tsvector(
-        jsonb->'language'->'best'->>'value',
-        jsonb->'content'->'best'->>'value'
-    ));
+CREATE INDEX ON metahtml USING rum (title) TABLESPACE fastdata;
+CREATE INDEX ON metahtml USING rum (content) TABLESPACE fastdata;
 
-CREATE INDEX metahtml_hosttitle_rumidx ON metahtml USING rum (
-    url_host_key(url),
-    spacy_tsvector(
-        jsonb->'language'->'best'->>'value',
-        jsonb->'title'->'best'->>'value'
-    ));
-CREATE INDEX metahtml_hostcontent_rumidx ON metahtml USING rum (
-    url_host_key(url),
-    spacy_tsvector(
-        jsonb->'language'->'best'->>'value',
-        jsonb->'content'->'best'->>'value'
-    ));
+--CREATE INDEX ON metahtml USING rum (title, url_host_key(url)) TABLESPACE fastdata;
+/*
+CREATE INDEX ON metahtml USING rum(title RUM_TSVECTOR_ADDON_OPS, (jsonb->'timestamp.published'->'best'->'value'->>'lo'))
+  WITH (ATTACH='(jsonb->''timestamp.published''->''best''->''value''->>''lo'')', TO='title');
 */
+CREATE INDEX ON metahtml USING rum(content RUM_TSVECTOR_ADDON_OPS, accessed_at)
+  WITH (ATTACH='accessed_at', TO='content');
 
 COMMIT;
 

@@ -104,9 +104,11 @@ def process_warc_from_disk(connection, warc_path, id_source, batch_size=100):
                     meta = metahtml.parse(html, url)
                     try:
                         pspacy_title = pspacy.lemmatize(meta['language']['best']['value'], meta['title']['best']['value'])
-                        pspacy_content = pspacy.lemmatize(meta['language']['best']['value'], meta['title']['best']['value'])
                     except TypeError:
                         pspacy_title = None
+                    try:
+                        pspacy_content = pspacy.lemmatize(meta['language']['best']['value'], meta['content']['best']['value']['text'])
+                    except TypeError:
                         pspacy_content = None
 
                 # if there was an error in metahtml, log it
@@ -151,7 +153,7 @@ def bulk_insert(batch):
         keys = ['accessed_at', 'id_source', 'url', 'jsonb']
         sql = sqlalchemy.sql.text(
             'INSERT INTO metahtml ('+','.join(keys)+',title,content) VALUES'+
-            ','.join(['(' + ','.join([f':{key}{i}' for key in keys]) + f",to_tsvector('simple',:pspacy_title{i}),to_tsvector('simple',:pspacy_content{i})" + ')' for i in range(len(batch))])
+            ','.join(['(' + ','.join([f':{key}{i}' for key in keys]) + f",:pspacy_title{i} ::tsvector,:pspacy_content{i} ::tsvector" + ')' for i in range(len(batch))])
             )
         res = connection.execute(sql,{
             key+str(i) : d[key]
