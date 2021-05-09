@@ -102,6 +102,7 @@ def process_warc_from_disk(connection, warc_path, id_source, batch_size=100):
                 # extract the meta
                 try:
                     meta = metahtml.parse(html, url)
+
                     try:
                         pspacy_title = pspacy.lemmatize(meta['language']['best']['value'], meta['title']['best']['value'])
                     except TypeError:
@@ -153,7 +154,7 @@ def bulk_insert(batch):
         keys = ['accessed_at', 'id_source', 'url', 'jsonb']
         sql = sqlalchemy.sql.text(
             'INSERT INTO metahtml ('+','.join(keys)+',title,content) VALUES'+
-            ','.join(['(' + ','.join([f':{key}{i}' for key in keys]) + f",:pspacy_title{i} ::tsvector,:pspacy_content{i} ::tsvector" + ')' for i in range(len(batch))])
+            ','.join(['(' + ','.join([f':{key}{i}' for key in keys]) + f",:pspacy_title{i},:pspacy_content{i}" + ')' for i in range(len(batch))])
             )
         res = connection.execute(sql,{
             key+str(i) : d[key]

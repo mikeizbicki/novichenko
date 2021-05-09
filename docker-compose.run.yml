@@ -1,0 +1,15 @@
+version: '3.7'
+
+services:
+  downloader_cc:
+    build: ./services/downloader_cc
+    volumes:
+      - /data/common-crawl:/data/common-crawl
+    env_file:
+      - ./.env.prod
+        #depends_on:
+        #- pg
+
+networks:
+  default:
+    name: novichenko

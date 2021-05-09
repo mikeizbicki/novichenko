@@ -831,25 +831,22 @@ CREATE TABLE metahtml (
     accessed_at TIMESTAMPTZ NOT NULL,
     inserted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     url TEXT NOT NULL,
-    jsonb JSONB NOT NULL,
-    timestamp_published TIMESTAMPTZ,
-    language TEXT,
-    title tsvector,
-    title_ngrams text[],
-    content tsvector,
-    content_ngrams text[]
+    jsonb JSONB NOT NULL
 );
 
 CREATE TABLE metahtml_view (
-    id_metahtml NOT NULL REFERENCES metahtml(id),
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    --FIXME: id_metahtml BIGINT NOT NULL REFERENCES metahtml(id),
     timestamp_published TIMESTAMPTZ NOT NULL,
-    hostpath TEXT NOT NULL UNIQUE CHECK (hostpath_surt = url_hostpath_surt(hostpath)),
-    language NOT NULL CHECK (language = language_iso639(language)),
+    hostpath_surt TEXT NOT NULL UNIQUE, -- FIXME: CHECK (hostpath_surt = url_hostpath_surt(hostpath_surt)),
+    language TEXT NOT NULL CHECK (language = language_iso639(language)), --FIXME: we need to standardize language names and change function
+    title TEXT,
+    description TEXT,
     tsv_title tsvector NOT NULL,
     tsv_content tsvector NOT NULL
 );
 CREATE INDEX ON metahtml_view USING rum(tsv_content RUM_TSVECTOR_ADDON_OPS, timestamp_published)
-  WITH (ATTACH='timestamp_published', TO='content');
+  WITH (ATTACH='timestamp_published', TO='tsv_content');
 
 --------------------------------------------------------------------------------
 -- rollups for tracking debug info
@@ -925,7 +922,7 @@ ORDER BY src_host DESC;
 CREATE MATERIALIZED VIEW metahtml_hoststats AS (
     SELECT
         url_host_surt(url) AS host,
-        language,
+        (jsonb->'language'->'best'->>'value') AS language,
         hll_count(id_source) AS id_source,
         hll_count(jsonb->'timestamp.published') AS timestamp_published,
         hll_count(jsonb->'timestamp.modified') AS timestamp_modified,
@@ -939,7 +936,7 @@ CREATE MATERIALIZED VIEW metahtml_hoststats AS (
 CREATE MATERIALIZED VIEW metahtml_hoststats_filtered AS (
     SELECT
         url_host_surt(url) AS host,
-        language,
+        (jsonb->'language'->'best'->>'value') AS language,
         hll_count(id_source) AS id_source,
         hll_count(jsonb->'timestamp.published') AS timestamp_published,
         hll_count(jsonb->'timestamp.modified') AS timestamp_modified,
@@ -1003,141 +1000,53 @@ CREATE VIEW hostnames_to_check_untested AS (
 
 CREATE MATERIALIZED VIEW metahtml_rollup_content_textlangmonth TABLESPACE fastdata AS (
     SELECT
-        --tsvector_to_ngrams(content) AS alltext,
-        unnest(tsvector_to_array(content)) AS alltext,
-        --unnest(content_ngrams) AS alltext,
-        --unnest(array_uniq(content_ngrams)) AS alltext,
-        --jsonb->'language'->'best'->>'value' AS language, 
-        language_iso639(language) AS language_iso639, 
+        unnest(tsvector_to_array(tsv_content)) AS alltext,
+        language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        --date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published_month,
-        count(url) AS url,
-        count(url_hostpathquery_surt(url)) AS hostpathquery,
-        count(url_hostpath_surt(url)) AS hostpath
-    FROM metahtml
-    GROUP BY alltext,language_iso639,timestamp_published_month
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_content_textlangmonth2 TABLESPACE fastdata AS (
-    SELECT
-        tsvector_to_ngrams(content) AS alltext,
-        --unnest(tsvector_to_array(content)) AS alltext,
-        --unnest(content_ngrams) AS alltext,
-        --unnest(array_uniq(content_ngrams)) AS alltext,
-        --jsonb->'language'->'best'->>'value' AS language, 
-        language_iso639(language) AS language_iso639, 
-        --date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published_month,
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        count(url_hostpath_surt(url)) AS hostpath
-    FROM metahtml
+        hll_count(hostpath_surt) AS hostpath_surt
+    FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_month
-);
-
-CREATE MATERIALIZED VIEW rolluptest TABLESPACE fastdata AS (
-    SELECT
-        --tsvector_to_ngrams(content) AS alltext,
-        unnest(tsvector_to_array(content)) AS alltext,
-        --unnest(content_ngrams) AS alltext,
-        --unnest(array_uniq(content_ngrams)) AS alltext,
-        --jsonb->'language'->'best'->>'value' AS language, 
-        --date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published_month,
-        language_iso639(language) AS language_iso639, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        hll_count(url_hostpath_surt(url)) AS hostpath
-    FROM metahtml
-    GROUP BY alltext,language_iso639,timestamp_published_month
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_title_textlangday TABLESPACE fastdata AS (
-    SELECT
-        unnest(tsvector_to_array(title)) AS alltext,
-        --unnest(array_uniq(title_ngrams)) AS alltext,
-        --jsonb->'language'->'best'->>'value' AS language, 
-        --date_trunc('day',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published_day,
-        language_iso639(language) AS language_iso639, 
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_surt(url)) AS hostpathquery,
-        hll_count(url_hostpath_surt(url)) AS hostpath
-    FROM metahtml
-    GROUP BY alltext,language_iso639,timestamp_published_day
 );
 
 CREATE MATERIALIZED VIEW metahtml_rollup_title_textlangmonth TABLESPACE fastdata AS (
     SELECT
-        unnest(tsvector_to_array(title)) AS alltext,
-        --unnest(array_uniq(title_ngrams)) AS alltext,
-        --jsonb->'language'->'best'->>'value' AS language, 
-        --date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published_month,
-        language_iso639(language) AS language_iso639, 
+        unnest(tsvector_to_array(tsv_title)) AS alltext,
+        language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_surt(url)) AS hostpathquery,
-        hll_count(url_hostpath_surt(url)) AS hostpath
-    FROM metahtml
-    GROUP BY alltext,language_iso639,timestamp_published_month
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth TABLESPACE fastdata AS (
-    SELECT
-        unnest(tsvector_to_array(COALESCE(title || content, content, title))) AS alltext,
-        --unnest((array_uniq(COALESCE(title_ngrams || content_ngrams, content_ngrams, title_ngrams)))) AS alltext,
-        --jsonb->'language'->'best'->>'value' AS language, 
-        language_iso639(language) AS language_iso639, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        --date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published_month,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_surt(url)) AS hostpathquery,
-        hll_count(url_hostpath_surt(url)) AS hostpath
-    FROM metahtml
-    GROUP BY alltext,language_iso639,timestamp_published_month
+        hll_count(hostpath_surt) AS hostpath_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_month
 );
 
 CREATE MATERIALIZED VIEW metahtml_rollup_langmonth AS (
     SELECT
         language, 
-        date_trunc('month',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published_month,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_surt(url)) AS hostpathquery,
-        hll_count(url_hostpath_surt(url)) AS hostpath
-    FROM metahtml
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        hll_count(hostpath_surt) AS hostpath_surt
+    FROM metahtml_view
     GROUP BY language,timestamp_published_month
+);
+
+----------
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangday TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_array(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        hll_count(hostpath_surt) AS hostpath_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_day
 );
 
 CREATE MATERIALIZED VIEW metahtml_rollup_langday AS (
     SELECT
         language, 
-        date_trunc('day',(jsonb->'timestamp.published'->'best'->'value'->>'lo')::timestamptz) AS timestamp_published_day,
-        hll_count(url) AS url,
-        hll_count(url_hostpathquery_surt(url)) AS hostpathquery,
-        hll_count(url_hostpath_surt(url)) AS hostpath
-    FROM metahtml
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        hll_count(hostpath_surt) AS hostpath_surt
+    FROM metahtml_view
     GROUP BY language,timestamp_published_day
 );
-
-/* indexes for text search of the form
-
-SELECT
-    jsonb->'title'->'best'->>'value'
-FROM metahtml
-WHERE
-    spacy_tsvector(
-        jsonb->'language'->'best'->>'value',
-        jsonb->'title'->'best'->>'value'
-    ) @@ 
-    spacy_tsquery('en', 'covid');
-*/
-
-CREATE INDEX ON metahtml USING rum (title) TABLESPACE fastdata;
-CREATE INDEX ON metahtml USING rum (content) TABLESPACE fastdata;
-
---CREATE INDEX ON metahtml USING rum (title, url_host_surt(url)) TABLESPACE fastdata;
-/*
-CREATE INDEX ON metahtml USING rum(title RUM_TSVECTOR_ADDON_OPS, (jsonb->'timestamp.published'->'best'->'value'->>'lo'))
-  WITH (ATTACH='(jsonb->''timestamp.published''->''best''->''value''->>''lo'')', TO='title');
-*/
-CREATE INDEX ON metahtml USING rum(content RUM_TSVECTOR_ADDON_OPS, timestamp_published)
-  WITH (ATTACH='timestamp_published', TO='content');
 
 COMMIT;
 

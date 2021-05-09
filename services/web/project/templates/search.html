@@ -9,6 +9,86 @@
 
 {% block content %}
 <script>
+
+// see: https://stackoverflow.com/questions/901115/how-can-i-get-query-string-values-in-javascript
+function getParameterByName(name, url = window.location.href) {
+    name = name.replace(/[\[\]]/g, '\\$&');
+    var regex = new RegExp('[?&]' + name + '(=([^&#]*)|&|#|$)'),
+        results = regex.exec(url);
+    if (!results) return null;
+    if (!results[2]) return '';
+    return decodeURIComponent(results[2].replace(/\+/g, ' '));
+}
+
+// see: https://stackoverflow.com/questions/1634748/how-can-i-delete-a-query-string-parameter-in-javascript
+function removeURLParameter(url, parameter) {
+    //prefer to use l.search if you have a location/link object
+    var urlparts = url.split('?');
+    if (urlparts.length >= 2) {
+
+        var prefix = encodeURIComponent(parameter) + '=';
+        var pars = urlparts[1].split(/[&;]/g);
+
+        //reverse iteration as may be destructive
+        for (var i = pars.length; i-- > 0;) {
+            //idiom for string.startsWith
+            if (pars[i].lastIndexOf(prefix, 0) !== -1) {
+                pars.splice(i, 1);
+            }
+        }
+
+        return urlparts[0] + (pars.length > 0 ? '?' + pars.join('&') : '');
+    }
+    return url;
+}
+
+// see: https://stackoverflow.com/questions/1090948/change-url-parameters
+function updateURLParameter(url, param, paramVal)
+{
+    var TheAnchor = null;
+    var newAdditionalURL = "";
+    var tempArray = url.split("?");
+    var baseURL = tempArray[0];
+    var additionalURL = tempArray[1];
+    var temp = "";
+
+    if (additionalURL) 
+    {
+        var tmpAnchor = additionalURL.split("#");
+        var TheParams = tmpAnchor[0];
+            TheAnchor = tmpAnchor[1];
+        if(TheAnchor)
+            additionalURL = TheParams;
+
+        tempArray = additionalURL.split("&");
+
+        for (var i=0; i<tempArray.length; i++)
+        {
+            if(tempArray[i].split('=')[0] != param)
+            {
+                newAdditionalURL += temp + tempArray[i];
+                temp = "&";
+            }
+        }        
+    }
+    else
+    {
+        var tmpAnchor = baseURL.split("#");
+        var TheParams = tmpAnchor[0];
+            TheAnchor  = tmpAnchor[1];
+
+        if(TheParams)
+            baseURL = TheParams;
+    }
+
+    if(TheAnchor)
+        paramVal += "#" + TheAnchor;
+
+    var rows_txt = temp + "" + param + "=" + paramVal;
+    return baseURL + "?" + newAdditionalURL + rows_txt;
+}
+
+
 width = 800; //document.querySelector("main").offsetWidth;
 height = 200; //width/3;
 let data = [
@@ -26,23 +106,56 @@ let opts = {
     {
       // initial toggled state (optional)
       show: true,
-
       spanGaps: false,
 
       // in-legend display
       label: "{{term}}",
 
       // series style
-            stroke: "{{color}}",
+      stroke: "{{color}}",
       width: 1,
       drawStyle: 0,
       lineInterpolation: 1,
     },
       {% endfor %}
   ],
+  hooks: {
+    init: [
+        u => {
+          // on double click, we fully zoom out the plot;
+          // then we change the url to have no time filter
+          u.root.querySelector(".u-over").ondblclick = e => {
+            u.setScale('x', {} );
+            url = removeURLParameter(removeURLParameter(window.location.href, 'time_lo'), 'time_hi')
+            console.log('reset time_lo,time_hi: url='+url)
+            window.location.href = url
+          }
+
+          // on page load, we zoom the plot in to the time filter range
+          let time_lo = getParameterByName('time_lo');
+          let time_hi = getParameterByName('time_hi');
+          if (!(time_lo === null || time_hi === null)) {
+            let min = new Date(time_lo).valueOf()/1000;
+            let max = new Date(time_hi).valueOf()/1000;
+            u.setScale('x', {min, max} );
+          }
+        }
+      ],
+    setSelect: [
+      u => {
+        // whenever the user zooms in on the plot,
+        // we update the time filter and change the url to match
+        let time_lo = new Date(u.posToVal(u.select.left, 'x')*1000).toISOString().split('T')[0].slice(0,-2)+'01';
+        let time_hi = new Date(u.posToVal(u.select.left + u.select.width, 'x')*1000).toISOString().split('T')[0];
+        url = updateURLParameter((updateURLParameter(window.location.href, 'time_lo', time_lo)), 'time_hi', time_hi)
+        console.log('new time_lo,time_hi: url='+url)
+        window.location.href = url
+      }
+    ]
+  }
 };
 
-let uplot = new uPlot(opts, data, document.querySelector("main div.box"));
+let u = new uPlot(opts, data, document.querySelector("main div.box"));
 </script>
 
 <h2>Search Results</h2>
