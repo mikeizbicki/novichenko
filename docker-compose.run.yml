@@ -5,10 +5,9 @@ services:
     build: ./services/downloader_cc
     volumes:
       - /data/common-crawl:/data/common-crawl
+      - ./services/downloader_cc/:/home/app
     env_file:
       - ./.env.prod
-        #depends_on:
-        #- pg
 
 networks:
   default:

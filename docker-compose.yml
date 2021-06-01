@@ -1,6 +1,10 @@
 version: '3.7'
 
 services:
+  common_python:
+    build: ./services/common_python
+    image: common_python
+    command: echo 'success'
   db:
     image: edoburu/pgbouncer:1.15.0
     environment:

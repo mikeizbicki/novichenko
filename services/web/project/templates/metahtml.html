@@ -2,10 +2,18 @@
 
 {% block content %}
 
-{{jsonb_html|safe}}
+<h1>{{title|safe}}</h1>
 
 <hr>
-<h1>{{title|safe}}</h1>
+<table class=metahtml>
+    <tr><td>author</td><td>{{row['jsonb']['author']['best']['value']}}</td></tr>
+    <tr><td>language</td><td>{{row['jsonb']['language']['best']['value']}}</td></tr>
+    <tr><td>timestamp.published</td><td>{{row['jsonb']['timestamp.published']['best']['value']['lo']}} --- {{row['jsonb']['timestamp.published']['best']['value']['hi']}}</td></tr>
+    <tr><td>timestamp.modified</td><td>{{row['jsonb']['timestamp.modified']['best']['value']}}</td></tr>
+    <tr><td>url</td><td><a href={{row['url']}}>{{row['url']}}</a></td></tr>
+</table>
+<hr>
+
 <article>
 {{content|safe}}
 </article>

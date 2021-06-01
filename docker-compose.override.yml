@@ -10,7 +10,6 @@ services:
       - ./.env.prod
     environment:
       - FLASK_DEBUG=1
-      - APP_FOLDER=/home/app/web
       - FLASK_APP=project/__init__.py
     depends_on:
       - db

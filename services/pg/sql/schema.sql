@@ -8,12 +8,12 @@ CREATE TABLESPACE fastdata LOCATION '/fastdata';
 BEGIN;
 
 -- this db doesn't directly use python,
--- but the pspacy and pgrollup extensions do
+-- but the chajda and pgrollup extensions do
 CREATE LANGUAGE plpython3u;
 
 -- extensions for improved indexing
 CREATE EXTENSION rum;
-CREATE EXTENSION pspacy;
+CREATE EXTENSION chajda;
 
 -- extensions used by pgrollup
 CREATE EXTENSION hll;
@@ -83,7 +83,7 @@ $$;
  * This appears to be necessary for a SQL implementation of this function.
  * A native-C implementation is likely able to avoid these issues.
  * In theory, this should be computable with only a single pass over the tsvector.
- */
+ *
 CREATE OR REPLACE FUNCTION tsvector_to_ngrams(tsv tsvector)
 RETURNS TABLE(lexeme TEXT) LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
 AS $$
@@ -119,12 +119,12 @@ FROM (
 )t
 WHERE lexeme IS NOT NULL;
 $$;
-
+*/
 
 -- FIXME:
 -- computing ngrams from a tsvector is SLOW because it requires sorting potentially large documents;
 -- we should create an ngrams column in the metahtml table to store this information. 
-CREATE OR REPLACE FUNCTION tsvector_to_ngrams(tsv tsvector, n integer)
+CREATE OR REPLACE FUNCTION tsvector_to_ngrams(tsv tsvector, n INTEGER DEFAULT 3)
 RETURNS TABLE(ngram TEXT) LANGUAGE plpython3u IMMUTABLE STRICT PARALLEL SAFE
 AS $$
 def tsvector_to_ngrams(tsv, n, uniq=True):
@@ -140,13 +140,21 @@ def tsvector_to_ngrams(tsv, n, uniq=True):
     '''
     positioned_lexemes = []
     for item in tsv.split():
-        lexeme, positions = item.split(':')
-        for position in positions.split(','):
-            try:
-                position = int(position)
-                positioned_lexemes.append((position,lexeme.strip("'")))
-            except ValueError:
-                pass
+        try:
+            lexeme, positions = item.split(':')
+            for position in positions.split(','):
+                try:
+                    position = int(position)
+                    positioned_lexemes.append((position,lexeme.strip("'")))
+                except ValueError:
+                    pass
+
+        # FIXME: 
+        # there are some items without colons, causing the split() call to fail;
+        # this should never happen, and I don't know why it is
+        except ValueError:
+            plpy.warning('tsvector_to_ngrams item='+item+' tsv='+tsv)
+            pass
 
 
     positioned_lexemes.sort()
@@ -365,6 +373,29 @@ BEGIN
     assert( host_unsurt(host_surt('cnn.com')) = 'cnn.com');
     assert( host_unsurt(host_surt('www.cnn.com')) = 'www.cnn.com');
     assert( host_unsurt(host_surt('www.bbc.co.uk')) = 'www.bbc.co.uk');
+END;
+$$ LANGUAGE plpgsql;
+
+/*
+ * converts a surt url (whether host/hostpath/hostpathquery) into a standard url without schema
+ */
+CREATE OR REPLACE FUNCTION unsurt(surt TEXT)
+RETURNS TEXT LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE
+AS $$
+DECLARE
+    host_surt TEXT = split_part(surt,')',1) || ')';
+    pathquery TEXT = split_part(surt,')',2);
+BEGIN
+    RETURN host_unsurt(host_surt) || pathquery;
+END 
+$$;
+
+do $$
+BEGIN
+    assert( unsurt(host_surt('cnn.com')) = 'cnn.com');
+    assert( unsurt(host_surt('www.cnn.com')) = 'www.cnn.com');
+    assert( unsurt(host_surt('www.bbc.co.uk')) = 'www.bbc.co.uk');
+    assert( unsurt('com,example,subdomain)/a/b/c/d?test=1&example=2') = 'subdomain.example.com/a/b/c/d?test=1&example=2' );
 END;
 $$ LANGUAGE plpgsql;
 
@@ -833,6 +864,7 @@ CREATE TABLE metahtml (
     url TEXT NOT NULL,
     jsonb JSONB NOT NULL
 );
+CREATE INDEX ON metahtml (url_hostpath_surt(url), accessed_at);
 
 CREATE TABLE metahtml_view (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -842,11 +874,14 @@ CREATE TABLE metahtml_view (
     language TEXT NOT NULL CHECK (language = language_iso639(language)), --FIXME: we need to standardize language names and change function
     title TEXT,
     description TEXT,
+    content TEXT,
     tsv_title tsvector NOT NULL,
     tsv_content tsvector NOT NULL
 );
 CREATE INDEX ON metahtml_view USING rum(tsv_content RUM_TSVECTOR_ADDON_OPS, timestamp_published)
   WITH (ATTACH='timestamp_published', TO='tsv_content');
+CREATE INDEX ON metahtml_view USING rum(tsv_content);
+CREATE INDEX ON metahtml_view USING gist(tsv_content);
 
 --------------------------------------------------------------------------------
 -- rollups for tracking debug info
@@ -951,7 +986,6 @@ CREATE MATERIALIZED VIEW metahtml_hoststats_filtered AS (
     GROUP BY host,language
 );
 
-/*
 CREATE VIEW metahtml_langstats AS (
     SELECT
         language_iso639(language) AS language_iso639,
@@ -964,9 +998,7 @@ CREATE VIEW metahtml_langstats AS (
     FROM metahtml_hoststats
     GROUP BY language_iso639
 );
-*/
 
-/*
 CREATE VIEW hostnames_to_check AS (
     SELECT 
         host_unsurt(host) as host,
@@ -981,6 +1013,7 @@ CREATE VIEW hostnames_to_check AS (
 
 CREATE VIEW hostnames_to_check_untested AS (
     SELECT
+        rank,
         host_unsurt(untested.url_host_surt) as host
     FROM top_1m_alexa
     RIGHT JOIN
@@ -988,35 +1021,16 @@ CREATE VIEW hostnames_to_check_untested AS (
         SELECT * FROM hostnames_untested
         UNION
         SELECT * FROM allsides_untested
+        /*
         UNION
         SELECT * FROM mediabiasfactcheck_untested
-        ) untested ON url_host_surt(top_1m_alexa.host) = untested.url_host_surt
+        */
+        ) untested ON url_host_surt(top_1m_alexa.host) = url_host_surt
     ORDER BY rank ASC
 );
-*/
 
 --------------------------------------------------------------------------------
 -- rollups for text
-
-CREATE MATERIALIZED VIEW metahtml_rollup_content_textlangmonth TABLESPACE fastdata AS (
-    SELECT
-        unnest(tsvector_to_array(tsv_content)) AS alltext,
-        language, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        hll_count(hostpath_surt) AS hostpath_surt
-    FROM metahtml_view
-    GROUP BY alltext,language,timestamp_published_month
-);
-
-CREATE MATERIALIZED VIEW metahtml_rollup_title_textlangmonth TABLESPACE fastdata AS (
-    SELECT
-        unnest(tsvector_to_array(tsv_title)) AS alltext,
-        language, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        hll_count(hostpath_surt) AS hostpath_surt
-    FROM metahtml_view
-    GROUP BY alltext,language,timestamp_published_month
-);
 
 CREATE MATERIALIZED VIEW metahtml_rollup_langmonth AS (
     SELECT
@@ -1027,17 +1041,38 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langmonth AS (
     GROUP BY language,timestamp_published_month
 );
 
-----------
-
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangday TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_host AS (
     SELECT
-        unnest(tsvector_to_array(tsv_title || tsv_content)) AS alltext,
         language, 
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        hll_count(hostpath_surt) AS hostpath_surt,
+        url_host(unsurt(hostpath_surt)) AS host
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_month,host
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth TABLESPACE fastdata AS (
+    SELECT
+        tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
+        language, 
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
         hll_count(hostpath_surt) AS hostpath_surt
     FROM metahtml_view
-    GROUP BY alltext,language,timestamp_published_day
+    GROUP BY alltext,language,timestamp_published_month
 );
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_host TABLESPACE fastdata AS (
+    SELECT
+        tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
+        language, 
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        hll_count(hostpath_surt) AS hostpath_surt,
+        url_host(unsurt(hostpath_surt)) AS host
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_month,host
+);
+
+----------
 
 CREATE MATERIALIZED VIEW metahtml_rollup_langday AS (
     SELECT
@@ -1047,6 +1082,38 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langday AS (
     FROM metahtml_view
     GROUP BY language,timestamp_published_day
 );
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langday_host AS (
+    SELECT
+        language, 
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        hll_count(hostpath_surt) AS hostpath_surt,
+        url_host(unsurt(hostpath_surt)) AS host
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_day,host
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangday TABLESPACE fastdata AS (
+    SELECT
+        tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
+        language, 
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        hll_count(hostpath_surt) AS hostpath_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_day
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_host TABLESPACE fastdata AS (
+    SELECT
+        tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
+        language, 
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        hll_count(hostpath_surt) AS hostpath_surt,
+        url_host(unsurt(hostpath_surt)) AS host
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_day,host
+);
+
 
 COMMIT;
 

@@ -42,7 +42,7 @@ def staticfiles(filename):
 
 engine = sqlalchemy.create_engine(app.config['DB_URI'], connect_args={
     'connect_timeout': 10,
-    'application_name': 'novichenko/web',
+    'application_name': 'web',
     })
 
 
@@ -50,6 +50,7 @@ engine = sqlalchemy.create_engine(app.config['DB_URI'], connect_args={
 def before_request():
     g.start = time.time()
     g.connection = engine.connect()
+    g.queries = []
 
 
 @app.after_request

@@ -17,11 +17,11 @@ import sqlalchemy
 import traceback
 from warcio.archiveiterator import ArchiveIterator
 
-import pspacy
+import chajda.tsvector
 
 def lemmas_to_ngrams(n, lemmas):
     '''
-    lemmas is expected to be the output of pspacy.lemmatize
+    lemmas is expected to be the output of chajda.tsvector.lemmatize
 
     >>> lemmas_to_ngrams(3, 'trouble:1 in:2 pyongyang:3   38:5 north:6 informed:7 analysis:8 of:9 north:10 korea:11')
     ['trouble in', 'in pyongyang', 'trouble in pyongyang', '38 north', 'north informed', '38 north informed', 'informed analysis', 'north informed analysis', 'analysis of', 'informed analysis of', 'of north', 'analysis of north', 'north korea', 'of north korea']
@@ -203,11 +203,11 @@ def bulk_insert(connection, id_source, batch):
                 'timestamp_published' : meta['timestamp.published']['best']['value']['lo'],
                 'title' : meta['title']['best']['value'],
                 'description' : meta['description']['best']['value'],
-                'tsv_title' : pspacy.lemmatize(lang_iso, meta['title']['best']['value']),
-                'tsv_content' : pspacy.lemmatize(lang_iso, meta['content']['best']['value']['text']),
+                'content' : lang_iso, meta['content']['best']['value']['html'],
+                'tsv_title' : chajda.tsvector.lemmatize(lang_iso, meta['title']['best']['value']),
+                'tsv_content' : chajda.tsvector.lemmatize(lang_iso, meta['content']['best']['value']['text']),
                 })
         except (TypeError,KeyError):
-            #logging.exception(f'exception when calling metahtml.parse() on url={url}')
             logging.debug(f'no lang/title/content for url={url}')
 
     # enter a transaction so that we update both the metahtml tables and the source table consistently
@@ -243,8 +243,8 @@ def bulk_insert(connection, id_source, batch):
         # insert into metahtml_view
         if len(batch_view) > 0:
             sql = sqlalchemy.sql.text(f'''
-                INSERT INTO metahtml_view (timestamp_published, hostpath_surt, language, title, description, tsv_title, tsv_content) VALUES'''+
-                ','.join([f'(:timestamp_published{i}, url_hostpath_surt(:url{i}), language_iso639(:language{i}), :title{i}, :description{i}, :tsv_title{i}, :tsv_content{i})' for i in range(len(batch_view))])
+                INSERT INTO metahtml_view (timestamp_published, hostpath_surt, language, title, description, content, tsv_title, tsv_content) VALUES'''+
+                ','.join([f'(:timestamp_published{i}, url_hostpath_surt(:url{i}), language_iso639(:language{i}), :title{i}, :description{i}, :content{i}, :tsv_title{i}, :tsv_content{i})' for i in range(len(batch_view))])
                 + 'ON CONFLICT DO NOTHING'
                 )
             res = connection.execute(sql,{
@@ -259,7 +259,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='''
     Insert the warc file into the database.
     ''')
-    parser.add_argument('--warc', help='path to warc file to insert into db', required=True)
+    parser.add_argument('--warc', help='path to warc file(s) to insert into db', nargs='+', required=True)
     args = parser.parse_args()
 
     # configure logging
@@ -273,4 +273,6 @@ if __name__ == '__main__':
         })  
     connection = engine.connect()
 
-    insert_warc(connection,args.warc)
+    # process all warc files
+    for warc in args.warc:
+        insert_warc(connection, warc)
