@@ -23,10 +23,11 @@ jobs:
         sh scripts/create_passwords.sh
         if [ "${{matrix.ENV}}" = 'dev' ]; then
             docker-compose build
+            docker-compose up -d
         elif [ "${{matrix.ENV}}" = 'prod' ]; then
             docker-compose -f docker-compose.yml -f docker-compose.prod.yml build
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
         fi
-        docker-compose up -d
         until docker-compose exec -T pg psql --user=novichenko <<< '\l'
         do
             sleep 1
