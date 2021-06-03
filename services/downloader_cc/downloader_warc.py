@@ -63,6 +63,7 @@ def lemmas_to_ngrams(n, lemmas):
     
     return grams
 
+
 def insert_warc(connection, warc_path, batch_size=100):
     '''
     '''

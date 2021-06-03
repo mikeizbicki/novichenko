@@ -9,8 +9,10 @@ idxs=$(jq '.[].id' < "$DATADIR/collinfo.json" | tr '"' ' ')
 
 # for each crawl, we download the corresponding index
 for idx in $idxs; do
-    echo downloading index for $idx
     path=cc-index/collections/$idx/indexes/cluster.idx
-    mkdir -p "$DATADIR/$(dirname $path)"
-    curl -C - -L -sS https://commoncrawl.s3.amazonaws.com/$path -o "$DATADIR/$path"
+    if [ ! -f "$DATADIR/$path" ]; then
+        echo downloading index for $idx
+        mkdir -p "$DATADIR/$(dirname $path)"
+        curl -C - -L -sS https://commoncrawl.s3.amazonaws.com/$path -o "$DATADIR/$path"
+    fi
 done

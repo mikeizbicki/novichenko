@@ -868,7 +868,6 @@ CREATE INDEX ON metahtml (url_hostpath_surt(url), accessed_at);
 
 CREATE TABLE metahtml_view (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    --FIXME: id_metahtml BIGINT NOT NULL REFERENCES metahtml(id),
     timestamp_published TIMESTAMPTZ NOT NULL,
     hostpath_surt TEXT NOT NULL UNIQUE, -- FIXME: CHECK (hostpath_surt = url_hostpath_surt(hostpath_surt)),
     language TEXT NOT NULL CHECK (language = language_iso639(language)), --FIXME: we need to standardize language names and change function
@@ -878,6 +877,7 @@ CREATE TABLE metahtml_view (
     tsv_title tsvector NOT NULL,
     tsv_content tsvector NOT NULL
 );
+CREATE UNIQUE INDEX ON metahtml_view (url_host(unsurt(hostpath_surt)), title); -- NOTE: this index ensures that there is at most one article with the same title per host
 CREATE INDEX ON metahtml_view USING rum(tsv_content RUM_TSVECTOR_ADDON_OPS, timestamp_published)
   WITH (ATTACH='timestamp_published', TO='tsv_content');
 CREATE INDEX ON metahtml_view USING rum(tsv_content);
@@ -1036,7 +1036,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langmonth AS (
     SELECT
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        hll_count(hostpath_surt) AS hostpath_surt
+        count(hostpath_surt) AS hostpath_surt
     FROM metahtml_view
     GROUP BY language,timestamp_published_month
 );
@@ -1045,7 +1045,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_host AS (
     SELECT
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        hll_count(hostpath_surt) AS hostpath_surt,
+        count(hostpath_surt) AS hostpath_surt,
         url_host(unsurt(hostpath_surt)) AS host
     FROM metahtml_view
     GROUP BY language,timestamp_published_month,host
@@ -1056,7 +1056,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth TABLESPACE fastdata AS (
         tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        hll_count(hostpath_surt) AS hostpath_surt
+        count(hostpath_surt) AS hostpath_surt
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_month
 );
@@ -1066,7 +1066,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_host TABLESPACE fastdata 
         tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        hll_count(hostpath_surt) AS hostpath_surt,
+        count(hostpath_surt) AS hostpath_surt,
         url_host(unsurt(hostpath_surt)) AS host
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_month,host
@@ -1078,7 +1078,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langday AS (
     SELECT
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
-        hll_count(hostpath_surt) AS hostpath_surt
+        count(hostpath_surt) AS hostpath_surt
     FROM metahtml_view
     GROUP BY language,timestamp_published_day
 );
@@ -1087,7 +1087,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langday_host AS (
     SELECT
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
-        hll_count(hostpath_surt) AS hostpath_surt,
+        count(hostpath_surt) AS hostpath_surt,
         url_host(unsurt(hostpath_surt)) AS host
     FROM metahtml_view
     GROUP BY language,timestamp_published_day,host
@@ -1098,7 +1098,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangday TABLESPACE fastdata AS (
         tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
-        hll_count(hostpath_surt) AS hostpath_surt
+        count(hostpath_surt) AS hostpath_surt
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_day
 );
@@ -1108,7 +1108,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_host TABLESPACE fastdata AS
         tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
-        hll_count(hostpath_surt) AS hostpath_surt,
+        count(hostpath_surt) AS hostpath_surt,
         url_host(unsurt(hostpath_surt)) AS host
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_day,host

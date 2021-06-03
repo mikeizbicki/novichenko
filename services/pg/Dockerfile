@@ -63,11 +63,12 @@ RUN cd /tmp \
  && rm -rf /tmp/chajda
 
 # install pgrollup's dependencies
-ADD https://raw.githubusercontent.com/mikeizbicki/pgrollup/master/install_dependencies.sh /tmp/deps/pgrollup/install_dependencies.sh
-ADD https://raw.githubusercontent.com/mikeizbicki/pgrollup/master/requirements.txt /tmp/deps/pgrollup/requirements.txt
+ADD https://raw.githubusercontent.com/mikeizbicki/pgrollup/readme/install_dependencies.sh /tmp/deps/pgrollup/install_dependencies.sh
+ADD https://raw.githubusercontent.com/mikeizbicki/pgrollup/readme/requirements.txt /tmp/deps/pgrollup/requirements.txt
 RUN cd /tmp \
  && git clone https://github.com/mikeizbicki/pgrollup \
  && cd pgrollup \
+ && git checkout readme \
  && sh install_dependencies.sh \
  && rm -rf /tmp/pgrollup
 
@@ -86,10 +87,11 @@ RUN cd /tmp \
 # install pgrollup
 # FIXME:
 # should we add a git checkout version?
-ADD https://api.github.com/repos/mikeizbicki/pgrollup/git/refs/heads/master /tmp/pg_rollup.version
+ADD https://api.github.com/repos/mikeizbicki/pgrollup/git/refs/heads/readme /tmp/pg_rollup.version
 RUN cd /tmp \
  && git clone https://github.com/mikeizbicki/pgrollup \
  && cd pgrollup \
+ && git checkout readme \
  && pip3 install . \
  && make USE_PGXS=1 \
  && make USE_PGXS=1 install \

@@ -8,6 +8,8 @@ services:
       - ./services/downloader_cc/:/home/app
     env_file:
       - ./.env.prod
+    depends_on:
+      - common_python
 
 networks:
   default:

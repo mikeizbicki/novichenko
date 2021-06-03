@@ -6,11 +6,6 @@ ENV HOME=/home/app
 WORKDIR $HOME
 ENTRYPOINT ["bash"]
 
-ENV DATADIR=/data/common-crawl
-RUN mkdir -p /data/common-crawl \
- && chown app /data/common-crawl \
- && chgrp app /data/common-crawl
-
 # install dependencies
 RUN apt-get update && apt-get install -y \
     curl \
@@ -21,6 +16,17 @@ RUN apt-get update && apt-get install -y \
 COPY ./requirements.txt $APP_HOME/requirements.txt
 RUN pip install --upgrade pip \
  && pip install -r $APP_HOME/requirements.txt
+
+# create storage directories
+ENV DATADIR=/data/common-crawl
+RUN mkdir -p $DATADIR \
+ && chown app $DATADIR \
+ && chgrp app $DATADIR
+
+ENV LOGDIR=./logs
+RUN mkdir -p $LOGDIR \
+ && chown app $LOGDIR \
+ && chgrp app $LOGDIR
 
 # copy files to container
 COPY . $HOME
