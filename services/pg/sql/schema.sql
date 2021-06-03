@@ -74,106 +74,6 @@ BEGIN
     assert( array_uniq(NULL::INT[]) IS NULL);
 END;
 $$;
-/*
- * extract all of the ngrams out of a tsvector
- *
- * FIXME:
- * This implementation is not particularly efficient:
- * It performs multiple passes over the data and has unneeded sort operations.
- * This appears to be necessary for a SQL implementation of this function.
- * A native-C implementation is likely able to avoid these issues.
- * In theory, this should be computable with only a single pass over the tsvector.
- *
-CREATE OR REPLACE FUNCTION tsvector_to_ngrams(tsv tsvector)
-RETURNS TABLE(lexeme TEXT) LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
-AS $$
-WITH cte AS (
-SELECT
-    lexeme,
-    unnest(positions) AS positions
-FROM unnest(tsv)
-ORDER BY positions
-)
-SELECT DISTINCT lexeme
-FROM (
-    SELECT lexeme
-    FROM cte
-    UNION
-    SELECT 
-        CASE WHEN lag(positions,1) OVER (ORDER BY positions) = positions-1
-             THEN lag(lexeme,1) OVER (ORDER BY positions) || ' ' || lexeme 
-             ELSE NULL
-             END
-             AS "2gram"
-    FROM cte
-    UNION
-    SELECT
-        CASE WHEN lag(positions,1) OVER (ORDER BY positions) = positions-1 AND lag(positions,2) OVER (ORDER BY positions) = positions-2
-             THEN lag(lexeme,2) OVER (ORDER BY positions) || ' ' || lag(lexeme,1) OVER (ORDER BY positions) || ' ' || lexeme 
-             WHEN lag(positions,1) OVER (ORDER BY positions) = positions-2
-             THEN lag(lexeme,1) OVER (ORDER BY positions) || ' ' || '_' || ' ' || lexeme 
-             ELSE NULL
-             END
-        AS "3gram"
-    FROM cte
-)t
-WHERE lexeme IS NOT NULL;
-$$;
-*/
-
--- FIXME:
--- computing ngrams from a tsvector is SLOW because it requires sorting potentially large documents;
--- we should create an ngrams column in the metahtml table to store this information. 
-CREATE OR REPLACE FUNCTION tsvector_to_ngrams(tsv tsvector, n INTEGER DEFAULT 3)
-RETURNS TABLE(ngram TEXT) LANGUAGE plpython3u IMMUTABLE STRICT PARALLEL SAFE
-AS $$
-def tsvector_to_ngrams(tsv, n, uniq=True):
-    '''
-    tsvector generated from the code to_tsvector('fancy apple pie crust is the most delicious fancy pie that I have ever eaten; I love pie.')
-
-    >>> tsvector_to_ngrams("'appl':2 'crust':4 'delici':8 'eaten':15 'ever':14 'fanci':1,9 'love':17 'pie':3,10,18", 1, False)
-    ['fanci', 'appl', 'pie', 'crust', 'delici', 'fanci', 'pie', 'ever', 'eaten', 'love', 'pie']
-    >>> tsvector_to_ngrams("'appl':2 'crust':4 'delici':8 'eaten':25 'ever':14 'fanci':1,9 'love':17 'pie':3,10,18", 2, False)
-    ['fanci', 'appl', 'fanci appl', 'pie', 'appl pie', 'crust', 'pie crust', 'delici', 'fanci', 'delici fanci', 'pie', 'fanci pie', 'ever', 'love', 'pie', 'love pie', 'eaten']
-    >>> tsvector_to_ngrams("'appl':2 'crust':4 'delici':8 'eaten':25 'ever':14 'fanci':1,9 'love':17 'pie':3,10,18", 3, False)
-    ['fanci', 'appl', 'fanci appl', 'pie', 'appl pie', 'fanci appl pie', 'crust', 'pie crust', 'appl pie crust', 'delici', 'fanci', 'delici fanci', 'pie', 'fanci pie', 'delici fanci pie', 'ever', 'love', 'pie', 'love pie', 'eaten']
-    '''
-    positioned_lexemes = []
-    for item in tsv.split():
-        try:
-            lexeme, positions = item.split(':')
-            for position in positions.split(','):
-                try:
-                    position = int(position)
-                    positioned_lexemes.append((position,lexeme.strip("'")))
-                except ValueError:
-                    pass
-
-        # FIXME: 
-        # there are some items without colons, causing the split() call to fail;
-        # this should never happen, and I don't know why it is
-        except ValueError:
-            plpy.warning('tsvector_to_ngrams item='+item+' tsv='+tsv)
-            pass
-
-
-    positioned_lexemes.sort()
-    ngrams = []
-    for i,(pos,lexeme) in enumerate(positioned_lexemes):
-        ngrams.append(lexeme)
-        ngram = lexeme
-        for j in range(1, min(n,i+1)):
-            prev_pos,prev_lexeme = positioned_lexemes[i-j]
-            if prev_pos == pos - j:
-                ngram = prev_lexeme + ' ' + ngram
-                ngrams.append(ngram)
-            else:
-                break
-    if uniq:
-        ngrams = set(ngrams)
-    return ngrams
-return tsvector_to_ngrams(tsv,n)
-$$;
 
 /*******************************************************************************
  * functions for extracting the components of a url stored as text
@@ -1053,7 +953,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_host AS (
 
 CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth TABLESPACE fastdata AS (
     SELECT
-        tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
         count(hostpath_surt) AS hostpath_surt
@@ -1063,7 +963,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth TABLESPACE fastdata AS (
 
 CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_host TABLESPACE fastdata AS (
     SELECT
-        tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
         count(hostpath_surt) AS hostpath_surt,
@@ -1095,7 +995,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langday_host AS (
 
 CREATE MATERIALIZED VIEW metahtml_rollup_textlangday TABLESPACE fastdata AS (
     SELECT
-        tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
         count(hostpath_surt) AS hostpath_surt
@@ -1105,7 +1005,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangday TABLESPACE fastdata AS (
 
 CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_host TABLESPACE fastdata AS (
     SELECT
-        tsvector_to_ngrams(tsv_title || tsv_content) AS alltext,
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
         count(hostpath_surt) AS hostpath_surt,
