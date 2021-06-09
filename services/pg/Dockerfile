@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     less \
     make \
+    libboost-dev \
     postgresql-server-dev-13 \
     postgresql-plpython3-13 \
     python3 \
@@ -33,7 +34,7 @@ RUN cd /tmp \
  && tar -xzf git-2.30.1.tar.gz \
  && cd git-2.30.1 \
  && ./configure \
- && make \
+ && make -j \
  && make install \
  && rm -rf /tmp/git-2.30.1
 
@@ -45,8 +46,8 @@ RUN cd /tmp \
 RUN cd /tmp \
  && git clone https://github.com/postgrespro/rum \
  && cd rum \
- && git checkout 1.3.7 \
- && make USE_PGXS=1 \
+ && git checkout 1a4d4b8e2597483b8545f8111cb3c44e4be0aa73 \
+ && make -j USE_PGXS=1 \
  && make USE_PGXS=1 install \
  && rm -rf /tmp/rum
 
@@ -81,7 +82,7 @@ RUN cd /tmp \
  && cd chajda \
  && git checkout notes \
  && pip3 install . \
- && make USE_PGXS=1 \
+ && make -j USE_PGXS=1 \
  && make USE_PGXS=1 install
 
 # install pgrollup
@@ -93,7 +94,7 @@ RUN cd /tmp \
  && cd pgrollup \
  && git checkout readme \
  && pip3 install . \
- && make USE_PGXS=1 \
+ && make -j USE_PGXS=1 \
  && make USE_PGXS=1 install \
  && rm -rf /tmp/pgrollup
 

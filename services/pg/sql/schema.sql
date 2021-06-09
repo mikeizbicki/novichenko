@@ -932,7 +932,7 @@ CREATE VIEW hostnames_to_check_untested AS (
 --------------------------------------------------------------------------------
 -- rollups for text
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langmonth AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langmonth TABLESPACE fastdata AS (
     SELECT
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
@@ -941,7 +941,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langmonth AS (
     GROUP BY language,timestamp_published_month
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_host AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_host TABLESPACE fastdata AS (
     SELECT
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
@@ -974,7 +974,49 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_host TABLESPACE fastdata 
 
 ----------
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langday AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_theta TABLESPACE fastdata AS (
+    SELECT
+        language, 
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_month
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_host_theta TABLESPACE fastdata AS (
+    SELECT
+        language, 
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        url_host(unsurt(hostpath_surt)) AS host
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_month,host
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_theta TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_month
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_host_theta TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        url_host(unsurt(hostpath_surt)) AS host
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_month,host
+);
+
+----------
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langday TABLESPACE fastdata AS (
     SELECT
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
@@ -983,7 +1025,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langday AS (
     GROUP BY language,timestamp_published_day
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langday_host AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langday_host TABLESPACE fastdata AS (
     SELECT
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,

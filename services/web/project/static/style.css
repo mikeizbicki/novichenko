@@ -65,6 +65,10 @@ button:hover {
 
 /* search results */
 
+#timeplot table {
+  display: none;
+}
+
 .result {
   margin: 1em 0em;
 }

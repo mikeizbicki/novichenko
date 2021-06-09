@@ -13,6 +13,7 @@ import logging
 import re
 import psutil
 import os
+import psycopg2
 import sqlalchemy
 import time
 import traceback
@@ -75,6 +76,14 @@ def warcitr_to_recorditr(warcitr):
 
 def recorditr_to_pg(recorditr, connection, source_name, batch_size=100):
     '''
+    Insert each record in recorditr into the database.
+    This function will create a new entry in the source table if source_name does not already exist.
+    If source_name already exists,
+    then the existing entry will be used to skip the first records in recorditr to prevent duplicates from being inserted.
+
+    FIXME:
+    WARC entries are already downloaded from the common crawl by the time we are skipping them in the recorditr here.
+    This means that we don't actually save any time/bandwidth by doing the skip.
     '''
     
     # create a new entry in the source table for this warc file if no entry exists
@@ -214,48 +223,66 @@ def bulk_insert(connection, id_source, batch):
         except (TypeError,KeyError):
             logging.debug(f'no lang/title/content for url={url}')
 
-    # enter a transaction so that we update both the metahtml tables and the source table consistently
-    with connection.begin():
+    # wrap the actual insert in an infinite loop;
+    # the insert code can deadlock due to unique constraints,
+    # and we will keep attempting to insert with exponential backoff until the insert actually works
+    for attempt_count in itertools.count():
+        try:
+            # enter a transaction so that we update both the metahtml tables and the source table consistently
+            with connection.begin():
 
-        # update urls_inserted in the source table
-        sql = sqlalchemy.sql.text('''
-        SELECT urls_inserted FROM source WHERE id=:id_source FOR UPDATE;
-        ''')
-        res = connection.execute(sql,{'id_source':id_source})
-        urls_inserted = res.first()['urls_inserted']
+                # update urls_inserted in the source table
+                sql = sqlalchemy.sql.text('''
+                SELECT urls_inserted FROM source WHERE id=:id_source FOR UPDATE;
+                ''')
+                res = connection.execute(sql,{'id_source':id_source})
+                urls_inserted = res.first()['urls_inserted']
 
-        sql = sqlalchemy.sql.text('''
-        UPDATE source SET urls_inserted=:urls_inserted WHERE id=:id_source;
-        ''')
-        res = connection.execute(sql,{'id_source':id_source, 'urls_inserted':urls_inserted+len(batch)})
+                sql = sqlalchemy.sql.text('''
+                UPDATE source SET urls_inserted=:urls_inserted WHERE id=:id_source;
+                ''')
+                res = connection.execute(sql,{'id_source':id_source, 'urls_inserted':urls_inserted+len(batch)})
 
-        # log our update
-        logging.info(f'bulk_insert: id_source={id_source}, urls_inserted={urls_inserted}, len(batch)={len(batch)}, len(batch_view)={len(batch_view)}')
+                # log our update
+                logging.info(f'bulk_insert: id_source={id_source}, urls_inserted={urls_inserted}, len(batch)={len(batch)}, len(batch_view)={len(batch_view)}')
 
-        # insert into metahtml
-        keys = ['accessed_at', 'id_source', 'url', 'jsonb']
-        sql = sqlalchemy.sql.text(f'''
-            INSERT INTO metahtml ({','.join(keys)}) VALUES'''+
-            ','.join(['(' + ','.join([f':{key}{i}' for key in keys]) + ')' for i in range(len(batch))])
-            )
-        res = connection.execute(sql,{
-            key+str(i) : d[key]
-            for key in keys
-            for i,d in enumerate(batch)
-            })
+                # insert into metahtml
+                keys = ['accessed_at', 'id_source', 'url', 'jsonb']
+                sql = sqlalchemy.sql.text(f'''
+                    INSERT INTO metahtml ({','.join(keys)}) VALUES'''+
+                    ','.join(['(' + ','.join([f':{key}{i}' for key in keys]) + ')' for i in range(len(batch))])
+                    )
+                res = connection.execute(sql,{
+                    key+str(i) : d[key]
+                    for key in keys
+                    for i,d in enumerate(batch)
+                    })
 
-        # insert into metahtml_view
-        if len(batch_view) > 0:
-            sql = sqlalchemy.sql.text(f'''
-                INSERT INTO metahtml_view (timestamp_published, hostpath_surt, language, title, description, content, tsv_title, tsv_content) VALUES'''+
-                ','.join([f'(:timestamp_published{i}, url_hostpath_surt(:url{i}), language_iso639(:language{i}), :title{i}, :description{i}, :content{i}, :tsv_title{i}, :tsv_content{i})' for i in range(len(batch_view))])
-                + 'ON CONFLICT DO NOTHING'
-                )
-            res = connection.execute(sql,{
-                key+str(i) : d[key]
-                for i,d in enumerate(batch_view)
-                for key in d.keys()
-                })
+                # insert into metahtml_view
+                if len(batch_view) > 0:
+                    sql = sqlalchemy.sql.text(f'''
+                        INSERT INTO metahtml_view (timestamp_published, hostpath_surt, language, title, description, content, tsv_title, tsv_content) VALUES'''+
+                        ','.join([f'(:timestamp_published{i}, url_hostpath_surt(:url{i}), language_iso639(:language{i}), :title{i}, :description{i}, :content{i}, :tsv_title{i}, :tsv_content{i})' for i in range(len(batch_view))])
+                        + 'ON CONFLICT DO NOTHING'
+                        )
+                    res = connection.execute(sql,{
+                        key+str(i) : d[key]
+                        for i,d in enumerate(batch_view)
+                        for key in d.keys()
+                        })
+
+                # if we've made it to this point in the code,
+                # the insert was successful,
+                # and we return from the function
+                return
+
+        # in the event of deadlock, perform the exponential backoff
+        except psycopg2.errors.DeadlockDetected:
+            sleep_time = 2**attempt_count
+            logging.error(f'psycopg2.errors.DeadlockDetected, sleep_time={sleep_time}')
+            time.sleep(sleep_time)
+
+
 ################################################################################
 # common crawl functions
 ################################################################################
