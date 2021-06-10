@@ -777,7 +777,7 @@ CREATE TABLE metahtml_view (
     tsv_title tsvector NOT NULL,
     tsv_content tsvector NOT NULL
 );
-CREATE UNIQUE INDEX ON metahtml_view (url_host(unsurt(hostpath_surt)), title); -- NOTE: this index ensures that there is at most one article with the same title per host
+CREATE UNIQUE INDEX ON metahtml_view (btree_sanitize(url_host(unsurt(hostpath_surt))), title); -- NOTE: this index ensures that there is at most one article with the same title per host
 CREATE INDEX ON metahtml_view USING rum(tsv_content RUM_TSVECTOR_ADDON_OPS, timestamp_published)
   WITH (ATTACH='timestamp_published', TO='tsv_content');
 CREATE INDEX ON metahtml_view USING rum(tsv_content);
