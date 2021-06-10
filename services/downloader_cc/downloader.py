@@ -14,7 +14,9 @@ import re
 import psutil
 import os
 import psycopg2
+import random
 import sqlalchemy
+import sqlalchemy.exc
 import time
 import traceback
 
@@ -61,9 +63,9 @@ async def get(url, offset, length):
 from warcio.recordloader import ArcWarcRecordLoader
 import io
 
-warcio_loader = ArcWarcRecordLoader()
 
 def warcitr_to_recorditr(warcitr):
+    warcio_loader = ArcWarcRecordLoader()
     for warc_entry in warcitr:
         try:
             stream = io.BytesIO(warc_entry)
@@ -74,7 +76,46 @@ def warcitr_to_recorditr(warcitr):
             logging.warning('gzip.BadGzipFile')
 
 
-def recorditr_to_pg(recorditr, connection, source_name, batch_size=100):
+def pg_sourceinfo(connection, source_name):
+    '''
+    Returns information from the database's source table about source_name.
+    This information can then be used to skip previously completed downloads,
+    or resume unfinished downloads.
+    '''
+    # create a new entry in the source table for this warc file if no entry exists
+    try:
+        sql = sqlalchemy.sql.text('''
+        INSERT INTO source (name) VALUES (:name) RETURNING id;
+        ''')
+        res = connection.execute(sql,{'name':source_name})
+        sourceinfo = {
+            'id_source': res.first()['id'],
+            'urls_inserted': 0,
+            'finished_at': None,
+            }
+
+    # if an entry already exists in source
+    except sqlalchemy.exc.IntegrityError:
+
+        logging.debug(f"name='{source_name}' exists in source")
+
+        # get info from the source table about previous runs
+        sql = sqlalchemy.sql.text('''
+        SELECT id,urls_inserted,finished_at FROM source WHERE name=:name;
+        ''')
+        res = connection.execute(sql,{'name':source_name})
+        row = res.first()
+        sourceinfo = {
+            'id_source': row['id'],
+            'urls_inserted': row['urls_inserted'],
+            'finished_at': row['finished_at'],
+            }
+
+    logging.debug(f'source_name={source_name}, id_source={sourceinfo["id_source"]}')
+    return sourceinfo
+
+
+def recorditr_to_pg(recorditr, connection, id_source, batch_size=100):
     '''
     Insert each record in recorditr into the database.
     This function will create a new entry in the source table if source_name does not already exist.
@@ -86,62 +127,11 @@ def recorditr_to_pg(recorditr, connection, source_name, batch_size=100):
     This means that we don't actually save any time/bandwidth by doing the skip.
     '''
     
-    # create a new entry in the source table for this warc file if no entry exists
-    try:
-        sql = sqlalchemy.sql.text('''
-        INSERT INTO source (name) VALUES (:name) RETURNING id;
-        ''')
-        res = connection.execute(sql,{'name':source_name})
-        id_source = res.first()['id']
-        finished_at = None
-        urls_inserted = 0
-
-    # if an entry already exists in source
-    except sqlalchemy.exc.IntegrityError:
-
-        logging.info(f"name='{source_name}' exists in source")
-
-        # get info from the source table about previous runs
-        sql = sqlalchemy.sql.text('''
-        SELECT id,urls_inserted,finished_at FROM source WHERE name=:name;
-        ''')
-        res = connection.execute(sql,{'name':source_name})
-        row = res.first()
-        id_source = row['id']
-        finished_at = row['finished_at']
-        urls_inserted = row['urls_inserted']
-
-        # if finished_at has a timestamp, then we've already fully processed the file and can skip it
-        if finished_at is not None:
-            logging.info(f'finished_at is {finished_at}, skipping')
-            return
-
-    logging.debug(f'id_source={id_source}')
-
     # for efficiency, we will not insert items into the db one at a time;
     # instead, we add them to the batch list,
     # and then bulk insert the batch list when it reaches len(batch)==batch_size
     batch = []
     for record_i,record in enumerate(recorditr):
-
-        '''
-        # skip WARC entries that are not responses
-        if record.rec_type != 'response':
-            logging.debug(f'skip record.rec_type={record.rec_type}')
-            continue
-
-        # skip WARC responses that are not successful (status code 2XX)
-        if record.http_headers.statusline[0] != '2':
-            logging.debug(f'skip statusline={record.http_headers.statusline} url={record.rec_headers.get_header("WARC-Target-URI")}')
-            continue
-
-        # skip WARC responses that are not text/html
-        headers = dict(record.http_headers.headers)
-        content_type = headers.get('Content-Type','')
-        if 'html' not in content_type and 'text' not in content_type and len(content_type)>0:
-            logging.debug(f'skip content_type={content_type} url={record.rec_headers.get_header("WARC-Target-URI")}')
-            continue
-        '''
 
         # extract the contents of the WARC record
         html = record.content_stream().read()
@@ -149,11 +139,6 @@ def recorditr_to_pg(recorditr, connection, source_name, batch_size=100):
         accessed_at = record.rec_headers.get_header('WARC-Date')
         if html is None or url is None or accessed_at is None:
             logging.error(f'invalid values found in WARC record; html is None={html is None}, url={url}, accessed_at={accessed_at}')
-            continue
-
-        # skip responses that have already been added
-        if record_i < urls_inserted:
-            logging.debug(f'skip already inserted record_i={record_i} url={record.rec_headers.get_header("WARC-Target-URI")}')
             continue
 
         # we're now committed to processing this url, and we log that fact
@@ -192,16 +177,25 @@ def recorditr_to_pg(recorditr, connection, source_name, batch_size=100):
     # we have finished looping over the recorditr;
     # we should bulk insert everything in the batch list that hasn't been inserted
     if len(batch)>0:
-        bulk_insert(connection, id_source, batch)
+        bulk_insert(connection, sourceinfo['id_source'], batch)
 
     # finished loading the file, so update the source table
     sql = sqlalchemy.sql.text('''
     UPDATE source SET finished_at=now() where id=:id;
     ''')
-    res = connection.execute(sql,{'id':id_source})
+    res = connection.execute(sql,{'id':sourceinfo['id_source']})
 
 
 def bulk_insert(connection, id_source, batch):
+    '''
+    Converts batch (a list of dictionaries containing information for the metahtml table) into a single insert statement;
+    then, connects to the db and runs this insert.
+    This is marginally more efficient than performing multiple inserts independently
+    (it results in fewer updates of the source table),
+    but I'm honestly not sure if it is worth the additional code complexity.
+    The batching was done for historical reasons;
+    old versions of the code base benefited dramatically from batching.
+    '''
 
     # compute the entries for the metahtml_view table
     batch_view = []
@@ -277,9 +271,14 @@ def bulk_insert(connection, id_source, batch):
                 return
 
         # in the event of deadlock, perform the exponential backoff
-        except psycopg2.errors.DeadlockDetected:
-            sleep_time = 2**attempt_count
-            logging.error(f'psycopg2.errors.DeadlockDetected, sleep_time={sleep_time}')
+        # FIXME:
+        # OperationalError can correspond to many things,
+        # some of which should be caught here,
+        # and some of which should actually crash the program;
+        # I can't find good documentation on all the possible causes, though
+        except (psycopg2.errors.DeadlockDetected, sqlalchemy.exc.OperationalError) as e:
+            sleep_time = min(2**attempt_count, 60*5) + random.random()*10
+            logging.exception(f'{type(e)}, sleep_time={sleep_time}')
             time.sleep(sleep_time)
 
 
@@ -396,11 +395,13 @@ def cdxiter_to_warcitr(cdxiter, semsize=400, batchsize=1000):
 
 def warcitr_to_warcfile(warcitr, out_filename, force=False):
     '''
+    Saves all the entries in warcitr to a file.
+
+    If the force flag is not set, then we use 'xb' permissions on the loaded file,
+    which will fail if the file already exists.
+    Otherwise, we use 'wb' permissions to open the file,
+    which will truncate the existing file without an error.
     '''
-    # if the force flag is not set, then we use 'xb' permissions,
-    # which will fail if the file already exists;
-    # otherwise we use 'wb' permissions to open the file,
-    # which will truncate the existing file without an error
     if not force:
         permissions = 'xb'
     else:
@@ -424,6 +425,23 @@ def download_warc(surt, *, worker=0, num_workers=1, write_warcfile=False, load_p
         If crawl is None, then it will use the entirety of the common crawl;
         If crawl is a specific crawl name, then it will only generate a warc file for that crawl.
     '''
+    
+    # create database connection
+    import sqlalchemy
+    dburl = f'postgresql://{os.environ["POSTGRES_USER"]}:{os.environ["POSTGRES_PASSWORD"]}@pg:5432/{os.environ["POSTGRES_NAME"]}'
+    engine = sqlalchemy.create_engine(dburl, connect_args={
+        'application_name': 'metahtml',
+        'connect_timeout': 60*60
+        })  
+    connection = engine.connect()
+
+    # download sourceinfo from db
+    sourceinfo = pg_sourceinfo(connection, warcfile)
+
+    # if finished_at has a timestamp, then we've already fully processed the file and can skip it
+    if sourceinfo['finished_at'] is not None:
+        logging.info(f'finished_at is {finished_at}, skipping')
+        return
 
     # compute the output filename
     warcfile = data_dir + f'/warc_new2/{surt}-{crawl}-{worker:04}-of-{num_workers:04}.warc.gz'
@@ -450,6 +468,9 @@ def download_warc(surt, *, worker=0, num_workers=1, write_warcfile=False, load_p
     # filter the cdxiter so that only the entries applicable to the current worker are traversed
     cdxiter = (x for i,x in enumerate(cdxiter) if i%num_workers == worker)
 
+    # skip urls from cdxiter that have already been added
+    cdxiter = itertools.islice(cdxiter, sourceinfo['urls_inserted'], None)
+
     # in a dryrun, we'll just process the cdxiter;
     # this will log statistics about what the actual run would compute,
     # but will not download the data
@@ -458,27 +479,13 @@ def download_warc(surt, *, worker=0, num_workers=1, write_warcfile=False, load_p
 
     # not a dryrun, so actually download the data
     else:
-
-        # stream the iterators
         warcitr = cdxiter_to_warcitr(cdxiter)
-
         if write_warcfile:
             warcitr = warcitr_to_warcfile(warcitr, warcfile, force)
-
-        # load into the database
         if load_pg:
-            # create database connection
-            import sqlalchemy
-            dburl = f'postgresql://{os.environ["POSTGRES_USER"]}:{os.environ["POSTGRES_PASSWORD"]}@pg:5432/{os.environ["POSTGRES_NAME"]}'
-            engine = sqlalchemy.create_engine(dburl, connect_args={
-                'application_name': 'metahtml',
-                'connect_timeout': 60*60
-                })  
-            connection = engine.connect()
-
-            # load the records
             recorditr = warcitr_to_recorditr(warcitr)
-            recorditr_to_pg(recorditr, connection, warcfile)
+            recorditr_to_pg(recorditr, connection, sourceinfo['id_source'])
+
 
 ################################################################################
 # standalone executable code
