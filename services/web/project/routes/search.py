@@ -74,8 +74,8 @@ def get_term_counts(time_lo_def, time_hi_def, terms):
     select
         x,
         total,
-        term_counts[1] as term_counts_lo,
-        term_counts[2] as term_counts,
+        term_counts[1] as term_counts,
+        term_counts[2] as term_counts_lo,
         term_counts[3] as term_counts_hi
     from (
         select
@@ -99,7 +99,7 @@ def get_term_counts(time_lo_def, time_hi_def, terms):
         left outer join (
             select
                 time,
-                theta_sketch_get_estimate_and_bounds(theta_sketch_intersection(coalesce("theta_sketch_distinct(metahtml_view.hostpath_surt)", theta_sketch_empty()))) as term_counts
+                theta_sketch_get_estimate_and_bounds(theta_sketch_intersection(coalesce("theta_sketch_distinct(metahtml_view.hostpath_surt)", theta_sketch_empty())), 3) as term_counts
             from (
         '''
         +
