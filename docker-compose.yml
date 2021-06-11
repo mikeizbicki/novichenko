@@ -16,17 +16,29 @@ services:
   pg:
     build: ./services/pg
     command: postgres -c config_file=/etc/postgresql.conf
-    volumes:
-        # - postgres_wal:/var/lib/postgresql/data/pg_wal/
-        - postgres_fastdata:/fastdata
-        - novichenko:/var/lib/postgresql/data/
+    labels: ['com.citusdata.role=Master']
+    #volumes:
+        # - novichenko_fastdata:/fastdata
+        # - novichenko_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
     env_file:
       - ./.env.prod
+
+  citus_worker:
+    build: ./services/pg
+    command: postgres -c config_file=/etc/postgresql.conf
+    labels: ['com.citusdata.role=Worker']
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    env_file:
+      - ./.env.prod
+    depends_on: [pg]
 
 networks:
   default:
     name: novichenko
 
 volumes:
-  novichenko:
-  postgres_fastdata:
+  novichenko_data:
+  novichenko_fastdata:

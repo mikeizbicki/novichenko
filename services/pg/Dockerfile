@@ -8,6 +8,7 @@ FROM postgres:$BASE_IMAGE_VERSION AS base
 # install system packages for building postgres extensions
 RUN apt-get update && apt-get install -y \
     autoconf \
+    curl \
     gcc \
     less \
     make \
@@ -18,6 +19,11 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     sudo \
     wget
+
+# install citus
+# see: http://docs.citusdata.com/en/v10.0/installation/multi_node_debian.html#steps-to-be-executed-on-all-nodes
+RUN curl https://install.citusdata.com/community/deb.sh | bash \
+ && apt-get -y install postgresql-13-citus-10.0
 
 # install a newer version of git
 # these libraries are required just for installing a new version of git

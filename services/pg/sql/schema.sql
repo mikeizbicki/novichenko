@@ -7,6 +7,8 @@ CREATE TABLESPACE fastdata LOCATION '/fastdata';
 
 BEGIN;
 
+CREATE EXTENSION citus;
+
 -- this db doesn't directly use python,
 -- but the chajda and pgrollup extensions do
 CREATE LANGUAGE plpython3u;
@@ -769,6 +771,7 @@ CREATE INDEX ON metahtml (url_hostpath_surt(url), accessed_at);
 CREATE TABLE metahtml_view (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     timestamp_published TIMESTAMPTZ NOT NULL,
+    host_surt TEXT NOT NULL,
     hostpath_surt TEXT NOT NULL UNIQUE, -- FIXME: CHECK (hostpath_surt = url_hostpath_surt(hostpath_surt)),
     language TEXT NOT NULL CHECK (language = language_iso639(language)), --FIXME: we need to standardize language names and change function
     title TEXT,
