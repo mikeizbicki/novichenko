@@ -222,6 +222,16 @@ let opts = {
 let u = new uPlot(opts, data, document.querySelector("main div.box"));
 </script>
 
+
+
+
+<h2>Sentiment</h2>
+<div>
+</div>
+
+
+
+
 <h2>Search Results</h2>
 Order by
 <select name="orderby" id="orderby">
@@ -244,7 +254,7 @@ document.getElementById('orderby').addEventListener('change', orderby_onchange);
             <!--<img src=https://{{result.host}}/favicon.ico height=12px width=12px />-->
             {{result.date_published}} --
             <!-- {{result.accessed_at}} -- -->
-            {{result.host}}
+            <a href='/host/{{result.host}}'>{{result.host}}</a>
             {{result.rank}}
         </div>
         <div class=result_title><a href="/metahtml?url={{result.url}}">{{result.title}}</a></div>

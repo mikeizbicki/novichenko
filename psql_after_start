@@ -1,0 +1,136 @@
+--------------------------------------------------------------------------------
+-- create the citus cluster
+--------------------------------------------------------------------------------
+
+SELECT citus_set_coordinator_host('pg');
+SELECT * from citus_add_node('novichenko_citus_worker_1', 5432);
+SELECT * from citus_add_node('novichenko_citus_worker_2', 5432);
+SELECT * from citus_add_node('novichenko_citus_worker_3', 5432);
+SELECT * from citus_add_node('novichenko_citus_worker_4', 5432);
+SELECT * from citus_add_node('novichenko_citus_worker_5', 5432);
+SELECT * from citus_add_node('novichenko_citus_worker_6', 5432);
+SELECT * from citus_add_node('novichenko_citus_worker_7', 5432);
+SELECT * from citus_add_node('novichenko_citus_worker_8', 5432);
+SELECT citus_drain_node('pg',5432); -- this may need to be run multiple times if there's not enough connections available
+
+SELECT create_distributed_table('metahtml_view', 'host_surt');
+SELECT create_distributed_table('metahtml_rollup_langmonth_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+
+SELECT create_distributed_table('metahtml_rollup_wordcontexthost_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+
+--------------------------------------------------------------------------------
+-- health of the citus cluster
+--------------------------------------------------------------------------------
+
+-- FIXME:
+-- join with pgrollup_rollups to include more useful information;
+-- make it a rollup
+CREATE VIEW pgrollup_cron_runtimes AS (
+SELECT
+    jobid,
+    database,
+    username,
+    command,
+    status,
+    count(jobid),
+    avg(end_time - start_time) AS "avg(runtime)",
+    max(end_time - start_time) AS "max(runtime)",
+    min(end_time - start_time) AS "min(runtime)",
+    stddev(extract(epoch from (end_time - start_time))) AS "stddev(runtime)" 
+FROM cron.job_run_details
+WHERE status != 'running'
+GROUP BY jobid,database,username,command,status
+ORDER BY jobid,status
+);
+
+
+CREATE VIEW cache_hit AS (
+SELECT
+    relid,
+    schemaname,
+    relname,
+    sum(heap_blks_read) AS heap_read,
+    sum(heap_blks_hit)  AS heap_hit,
+    case when sum(heap_blks_hit)+sum(heap_blks_read) = 0 then null
+         else sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read))
+    end AS ratio
+FROM pg_statio_user_tables
+GROUP BY relid,schemaname,relname
+ORDER BY schemaname,relname;
+);
+
+
+-- FIXME:
+-- add the coordinator node and non-distributed tables
+CREATE VIEW node_diskusage AS (
+SELECT
+    pg_dist_node.nodename,
+    pg_size_pretty(sum(shard_size))
+FROM citus_shards
+JOIN pg_dist_placement USING (shardid)
+JOIN pg_dist_node USING (groupid)
+GROUP BY pg_dist_node.nodename
+ORDER BY pg_dist_node.nodename;
+);
+
+
+CREATE VIEW 
+
+SELECT
+    f_d,
+    f_td,
+    --f_td / f_d as tf,
+    f_td / f_d * log(f_d) as tf_scaled,
+    f_td / f_d * rms_score as tf_ranked,
+    f_td / f_d * rms_score * log(f_d) as tf_scaled_ranked,
+    f_td2 / f_d * rms_score * log(f_d) as tf_scaled_ranked2,
+    score,
+    rms_score,
+    alexa_rank,
+    t.host_surt
+FROM (
+    SELECT
+        sum(metahtml_rollup_textlangmonth_host.hostpath_surt) AS f_td,
+        case when sum(metahtml_rollup_textlangmonth_host.hostpath_surt) < 10 then sum(metahtml_rollup_textlangmonth_host.hostpath_surt)/10.0
+             else sum(metahtml_rollup_textlangmonth_host.hostpath_surt)-9
+             end AS f_td2,
+        "metahtml_view.host_surt" as host_surt
+    FROM metahtml_rollup_textlangmonth_host
+    WHERE alltext = 'north korea'
+    GROUP BY "metahtml_view.host_surt"
+) t
+JOIN (
+    SELECT
+        sum(hostpath) AS f_d,
+        host
+    FROM metahtml_hoststats
+    GROUP BY host
+) metahtml_hoststats ON t.host_surt=metahtml_hoststats.host
+JOIN host_score USING (host_surt)
+ORDER BY tf_scaled_ranked2 DESC
+;
+
+
+CREATE OR REPLACE VIEW host_score AS (
+SELECT
+    rank() over (order by score desc) rank,
+    t.*
+FROM (
+    SELECT
+        sqrt((1/(100+coalesce(rank,10^9))^0.7)^2 + score^2) as rms_score,
+        2/(((100+coalesce(rank,10^9))^0.7) + 1/score)   as harmonic_score,
+        score,
+        rank as alexa_rank,
+        host_surt
+    FROM (
+        SELECT
+            sum((10+src_hostpath^0.3)/(100+coalesce(rank,10^9))^(0.7)) as score,
+            dest AS host_surt
+        FROM metahtml_linksall_host
+        LEFT JOIN top_1m_alexa ON metahtml_linksall_host.src=url_host_surt(top_1m_alexa.host)
+        GROUP BY dest
+    ) t
+    LEFT JOIN top_1m_alexa ON t.host_surt = url_host_surt(top_1m_alexa.host)
+) t
+order by score desc
+);

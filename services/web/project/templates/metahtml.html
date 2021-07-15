@@ -2,6 +2,13 @@
 
 {% block content %}
 
+<style>
+.dom-rm {
+    text-decoration: line-through;
+    background-color: #faa;
+}
+</style>
+
 <h1>{{title|safe}}</h1>
 
 <hr>
@@ -17,6 +24,167 @@
 <article>
 {{content|safe}}
 </article>
+
+<script>
+//var input = document.getElementById('myInput');
+function getSelectionText() {
+    var text = "";
+    if (window.getSelection) {
+        text = window.getSelection().toString();
+    } else if (document.selection && document.selection.type != "Control") {
+        text = document.selection.createRange().text;
+    }
+    return text;
+}
+
+// see: https://stackoverflow.com/questions/1335252/how-can-i-get-the-dom-element-which-contains-the-current-selection
+function getSelectionBoundaryElement(isStart) {
+    var range, sel, container;
+    if (document.selection) {
+        range = document.selection.createRange();
+        range.collapse(isStart);
+        return range.parentElement();
+    } else {
+        sel = window.getSelection();
+        if (sel.getRangeAt) {
+            if (sel.rangeCount > 0) {
+                range = sel.getRangeAt(0);
+            }
+        } else {
+            // Old WebKit
+            range = document.createRange();
+            range.setStart(sel.anchorNode, sel.anchorOffset);
+            range.setEnd(sel.focusNode, sel.focusOffset);
+
+            // Handle the case when the selection was selected backwards (from the end to the start in the document)
+            if (range.collapsed !== sel.isCollapsed) {
+                range.setStart(sel.focusNode, sel.focusOffset);
+                range.setEnd(sel.anchorNode, sel.anchorOffset);
+            }
+       }
+
+        if (range) {
+           container = range[isStart ? "startContainer" : "endContainer"];
+
+           // Check if the container is a text node and return its parent if so
+           return container.nodeType === 3 ? container.parentNode : container;
+        }
+    }
+}
+
+// see: https://stackoverflow.com/questions/7215479/get-parent-element-of-a-selected-text
+function getSelectionParentElement() {
+    var parentEl = null, sel;
+    if (window.getSelection) {
+        sel = window.getSelection();
+        if (sel.rangeCount) {
+            parentEl = sel.getRangeAt(0).commonAncestorContainer;
+            if (parentEl.nodeType != 1) {
+                parentEl = parentEl.parentNode;
+            }
+        }
+    } else if ( (sel = document.selection) && sel.type != "Control") {
+        parentEl = sel.createRange().parentElement();
+    }
+    return parentEl;
+}
+
+
+document.onkeydown = function() {
+    var key = event.keyCode || event.charCode;
+    if( key == 8 || key == 46 ) {
+        toggleSelectedText();
+    }
+}
+
+// see: https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
+function copyTextToClipboard(text) {
+  var textArea = document.createElement("textarea");
+
+  //
+  // *** This styling is an extra step which is likely not required. ***
+  //
+  // Why is it here? To ensure:
+  // 1. the element is able to have focus and selection.
+  // 2. if the element was to flash render it has minimal visual impact.
+  // 3. less flakyness with selection and copying which **might** occur if
+  //    the textarea element is not visible.
+  //
+  // The likelihood is the element won't even render, not even a
+  // flash, so some of these are just precautions. However in
+  // Internet Explorer the element is visible whilst the popup
+  // box asking the user for permission for the web page to
+  // copy to the clipboard.
+  //
+
+  // Place in the top-left corner of screen regardless of scroll position.
+  textArea.style.position = 'fixed';
+  textArea.style.top = 0;
+  textArea.style.left = 0;
+
+  // Ensure it has a small width and height. Setting to 1px / 1em
+  // doesn't work as this gives a negative w/h on some browsers.
+  textArea.style.width = '2em';
+  textArea.style.height = '2em';
+
+  // We don't need padding, reducing the size if it does flash render.
+  textArea.style.padding = 0;
+
+  // Clean up any borders.
+  textArea.style.border = 'none';
+  textArea.style.outline = 'none';
+  textArea.style.boxShadow = 'none';
+
+  // Avoid flash of the white box if rendered for any reason.
+  textArea.style.background = 'transparent';
+
+
+  textArea.value = text;
+
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  try {
+    var successful = document.execCommand('copy');
+    var msg = successful ? 'successful' : 'unsuccessful';
+    console.log('Copying text command was ' + msg);
+  } catch (err) {
+    console.log('Oops, unable to copy');
+  }
+
+  document.body.removeChild(textArea);
+}
+
+function toggleSelectedText() {
+        var selection = window.getSelection();
+        var range = selection.getRangeAt(0);
+        var tags = "p,h1,h2,h3,h4,h5,h6,ul,ol,li,table,tr,td,th,article,main,section,figure,figcaption";
+        if (range.commonAncestorContainer.getElementsByTagName) {
+            //var allWithinRangeParent = range.commonAncestorContainer.getElementsByTagName("p");
+            var allWithinRangeParent = range.commonAncestorContainer.querySelectorAll(tags);
+        }
+        else {
+            //var allWithinRangeParent = [range.commonAncestorContainer.closest(tags)];
+            var allWithinRangeParent = [range.commonAncestorContainer.parentNode.closest(tags)];
+        }
+
+        for (var i=0, el; el = allWithinRangeParent[i]; i++) {
+          // The second parameter says to include the element
+          // even if it's not fully selected
+          if (selection.containsNode(el, true) ) {
+              el.classList.toggle('dom-rm');
+          }
+        }
+    copyTextToClipboard('example');
+    copyTextToClipboard(article.innerHTML);
+
+};
+
+var article = document.body.querySelector('article');
+article.onmouseup = toggleSelectedText;
+article.captureEvents(Event.MOUSEUP);
+</script>
 {% endblock %}
 
 

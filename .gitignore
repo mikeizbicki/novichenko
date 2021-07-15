@@ -17,3 +17,6 @@ logs
 .parallel
 .python_history
 .viminfo
+
+services/downloader_cc/gensim-data/
+services/downloader_cc/pythainlp-data/

@@ -28,7 +28,7 @@ def search():
     terms = parse['terms']
 
     # extract other query params
-    orderby = request.args.get('orderby','none')
+    orderby = request.args.get('orderby','rank')
     normalize = request.args.get('normalize','none')
 
     # get normalization terms
@@ -213,7 +213,6 @@ def get_timeplot_data(time_lo_def, time_hi_def, terms, normalize, terms_normaliz
 def get_search_results(tsquery, filter_hosts, time_lo, time_hi, orderby):
     sql_search = (f'''
     SELECT 
-        id,
         unsurt(hostpath_surt) as url,
         url_host(unsurt(hostpath_surt)) AS host,
         title,
@@ -223,7 +222,8 @@ def get_search_results(tsquery, filter_hosts, time_lo, time_hi, orderby):
         -- ts_rank_cd(tsv_content, :tsquery) AS rank
         tsv_content <=> (:tsquery :: tsquery) AS rank
     FROM metahtml_view
-    WHERE ( :tsquery = ''OR tsv_content @@ (:tsquery :: tsquery) )'''
+    WHERE ( :tsquery = ''OR tsv_content @@ (:tsquery :: tsquery) )
+      --AND host_surt = 'com,nytimes)' '''
       +
       (
       '''

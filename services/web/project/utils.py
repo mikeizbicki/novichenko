@@ -20,7 +20,7 @@ def do_query(name, sql, binds):
     performs a query with the database and records debug information that will be stored for later
     '''
     start = time.time()
-    res = list(g.connection.execute(text(sql), binds))
+    res = g.connection.execute(text(sql), binds)
     explain = '\n'.join(map(lambda x:x[0], g.connection.execute(text('explain '+sql), binds)))
     stop = time.time()
     g.queries.append({
@@ -30,5 +30,5 @@ def do_query(name, sql, binds):
         'runtime': stop-start,
         'explain': str(explain),
         })
-    return res
+    return list(res)
 

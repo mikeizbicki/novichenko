@@ -115,7 +115,7 @@ def pg_sourceinfo(connection, source_name):
     return sourceinfo
 
 
-def recorditr_to_pg(recorditr, connection, id_source, batch_size=100):
+def recorditr_to_pg(recorditr, connection, id_source, metahtml_max_recall=False, batch_size=10):
     '''
     Insert each record in recorditr into the database.
     This function will create a new entry in the source table if source_name does not already exist.
@@ -146,7 +146,10 @@ def recorditr_to_pg(recorditr, connection, id_source, batch_size=100):
 
         # extract the meta
         try:
-            meta = metahtml.parse(html, url)
+            if metahtml_max_recall:
+                meta = metahtml.parse(html, url, extractor_config=metahtml.ExtractorConfig_recall)
+            else:
+                meta = metahtml.parse(html, url)
 
         # if there was an error in metahtml, log it
         except Exception as e:
@@ -177,13 +180,13 @@ def recorditr_to_pg(recorditr, connection, id_source, batch_size=100):
     # we have finished looping over the recorditr;
     # we should bulk insert everything in the batch list that hasn't been inserted
     if len(batch)>0:
-        bulk_insert(connection, sourceinfo['id_source'], batch)
+        bulk_insert(connection, id_source, batch)
 
     # finished loading the file, so update the source table
     sql = sqlalchemy.sql.text('''
     UPDATE source SET finished_at=now() where id=:id;
     ''')
-    res = connection.execute(sql,{'id':sourceinfo['id_source']})
+    res = connection.execute(sql,{'id':id_source})
 
 
 def bulk_insert(connection, id_source, batch):
@@ -199,21 +202,38 @@ def bulk_insert(connection, id_source, batch):
 
     # compute the entries for the metahtml_view table
     batch_view = []
+    batch_contextvector = []
     for item in batch:
         meta = json.loads(item['jsonb'])
         url = item['url']
         try:
             lang_iso = meta['language']['best']['value'][:2]
+            language = meta['language']['best']['value']
+            timestamp_published = meta['timestamp.published']['best']['value']['lo']
+            tsv_title = chajda.tsvector.lemmatize(lang_iso, meta['title']['best']['value'])
+            tsv_content = chajda.tsvector.lemmatize(lang_iso, meta['content']['best']['value']['text'])
             batch_view.append({
                 'url' : url,
-                'language' :  meta['language']['best']['value'],
-                'timestamp_published' : meta['timestamp.published']['best']['value']['lo'],
+                'language' : language,
+                'timestamp_published' : timestamp_published,
                 'title' : meta['title']['best']['value'],
                 'description' : meta['description']['best']['value'],
                 'content' : meta['content']['best']['value']['html'],
-                'tsv_title' : chajda.tsvector.lemmatize(lang_iso, meta['title']['best']['value']),
-                'tsv_content' : chajda.tsvector.lemmatize(lang_iso, meta['content']['best']['value']['text']),
+                'tsv_title' : tsv_title,
+                'tsv_content' : tsv_content,
                 })
+            for focus,context in chajda.tsvector.tsvector_to_contextvectors(language, tsv_content, n=2).items():
+                batch_contextvector.append({
+                    'url': url,
+                    'timestamp_published': timestamp_published,
+                    'context': context.tolist(),
+                    'count': 1, # FIXME: this number is currently not calculated by chajda
+                    'focus': focus,
+                    'language': language,
+                    })
+
+        # whenever the url does not correspond to an article, the code above throws an exception;
+        # in this case, we won't be adding to the batch_view or batch_contextvector variables
         except (TypeError,KeyError):
             logging.debug(f'no lang/title/content for url={url}')
 
@@ -238,7 +258,7 @@ def bulk_insert(connection, id_source, batch):
                 res = connection.execute(sql,{'id_source':id_source, 'urls_inserted':urls_inserted+len(batch)})
 
                 # log our update
-                logging.info(f'bulk_insert: id_source={id_source}, urls_inserted={urls_inserted}, len(batch)={len(batch)}, len(batch_view)={len(batch_view)}')
+                logging.info(f'bulk_insert: id_source={id_source}, urls_inserted={urls_inserted}, len(batch)={len(batch)}, len(batch_view)={len(batch_view)}, len(batch_contextvector)={len(batch_contextvector)}')
 
                 # insert into metahtml
                 keys = ['accessed_at', 'id_source', 'url', 'jsonb']
@@ -255,13 +275,26 @@ def bulk_insert(connection, id_source, batch):
                 # insert into metahtml_view
                 if len(batch_view) > 0:
                     sql = sqlalchemy.sql.text(f'''
-                        INSERT INTO metahtml_view (timestamp_published, hostpath_surt, language, title, description, content, tsv_title, tsv_content) VALUES'''+
-                        ','.join([f'(:timestamp_published{i}, url_hostpath_surt(:url{i}), language_iso639(:language{i}), :title{i}, :description{i}, :content{i}, :tsv_title{i}, :tsv_content{i})' for i in range(len(batch_view))])
+                        INSERT INTO metahtml_view (timestamp_published, host_surt, hostpath_surt, language, title, description, content, tsv_title, tsv_content) VALUES'''+
+                        ','.join([f'(:timestamp_published{i}, url_host_surt(:url{i}), url_hostpath_surt(:url{i}), language_iso639(:language{i}), :title{i}, :description{i}, :content{i}, :tsv_title{i}, :tsv_content{i})' for i in range(len(batch_view))])
                         + 'ON CONFLICT DO NOTHING'
                         )
                     res = connection.execute(sql,{
                         key+str(i) : d[key]
                         for i,d in enumerate(batch_view)
+                        for key in d.keys()
+                        })
+
+                # insert into contextvector
+                if len(batch_contextvector) > 0:
+                    sql = sqlalchemy.sql.text(f'''
+                        INSERT INTO contextvector (context, timestamp_published, count, host_surt, hostpath_surt, language, focus) VALUES'''+
+                        ','.join([f'(:context{i}, :timestamp_published{i}, 1, url_host_surt(:url{i}), url_hostpath_surt(:url{i}), language_iso639(:language{i}), :focus{i})' for i in range(len(batch_contextvector))])
+                        + 'ON CONFLICT DO NOTHING'
+                        )
+                    res = connection.execute(sql,{
+                        key+str(i) : d[key]
+                        for i,d in enumerate(batch_contextvector)
                         for key in d.keys()
                         })
 
@@ -286,7 +319,7 @@ def bulk_insert(connection, id_source, batch):
 # common crawl functions
 ################################################################################
 
-def mk_cdxiter(cdxfiles, filter_mime=True, filter_status=True, filter_duplicates=True):
+def mk_cdxiter(cdxfiles, filter_mime=True, filter_status=True, filter_duplicates=True, max_urls_to_download=None):
     '''
     Generator function that loops over the lines in the cdxfile.
     Each yielded entry is the json dictionary corresponding a cdxfile entry,
@@ -333,8 +366,16 @@ def mk_cdxiter(cdxfiles, filter_mime=True, filter_status=True, filter_duplicates
                         hostpaths_all.add(hostpath)
                         hostpaths_cdx.add(hostpath)
 
+                # the data was not filtered, so yield it
                 url_counts['no_filter'] += 1
                 yield data
+
+                logging.debug(f'url_counts["no_filter"]={url_counts["no_filter"]} max_urls_to_download={max_urls_to_download}')
+
+                # check if we should early stop
+                if max_urls_to_download is not None and url_counts['no_filter'] > max_urls_to_download:
+                    logging.info('stopped cdx_iter() due to reaching max_urls_to_download')
+                    return
 
     # we've iterated over the data,
     # now we log information about the iteration before returning
@@ -417,7 +458,7 @@ def warcitr_to_warcfile(warcitr, out_filename, force=False):
             yield warc_entry
 
 
-def download_warc(surt, *, worker=0, num_workers=1, write_warcfile=False, load_pg=False, crawl=None, data_dir='/data/common-crawl', force=False, dryrun=False):
+def download_warc(surt, *, worker=0, num_workers=1, max_urls_to_download:int=None, write_warcfile=False, load_pg=False, crawl=None, data_dir='/data/common-crawl', force=False, dryrun=False, metahtml_max_recall=False):
     '''
     Constructs a warc file that contains all useful urls from the given surt/crawl combination.
 
@@ -436,15 +477,13 @@ def download_warc(surt, *, worker=0, num_workers=1, write_warcfile=False, load_p
     connection = engine.connect()
 
     # download sourceinfo from db
+    warcfile = data_dir + f'/warc_new2/{surt}-{crawl}-{worker:04}-of-{num_workers:04}.warc.gz'
     sourceinfo = pg_sourceinfo(connection, warcfile)
 
     # if finished_at has a timestamp, then we've already fully processed the file and can skip it
     if sourceinfo['finished_at'] is not None:
-        logging.info(f'finished_at is {finished_at}, skipping')
+        logging.info(f'finished_at is {sourceinfo["finished_at"]}, skipping')
         return
-
-    # compute the output filename
-    warcfile = data_dir + f'/warc_new2/{surt}-{crawl}-{worker:04}-of-{num_workers:04}.warc.gz'
 
     # make output directory if it doesn't exist
     try:
@@ -458,12 +497,12 @@ def download_warc(surt, *, worker=0, num_workers=1, write_warcfile=False, load_p
     else:
         # when no crawl is specified, we search the data dir for all crawls;
         # we sort the crawls from oldest to newest;
-        # this way, when if discard duplicates in downstream steps,
+        # this way, when we discard duplicates in downstream steps,
         # we are discarding the older crawls
         dirpath = data_dir + f'/cdx/{surt}/'
         cdx_paths = [ dirpath + filename for filename in os.listdir(dirpath) ]
         cdx_paths.sort(reverse=True)
-    cdxiter = mk_cdxiter(cdx_paths)
+    cdxiter = mk_cdxiter(cdx_paths, max_urls_to_download=max_urls_to_download)
 
     # filter the cdxiter so that only the entries applicable to the current worker are traversed
     cdxiter = (x for i,x in enumerate(cdxiter) if i%num_workers == worker)
@@ -484,7 +523,7 @@ def download_warc(surt, *, worker=0, num_workers=1, write_warcfile=False, load_p
             warcitr = warcitr_to_warcfile(warcitr, warcfile, force)
         if load_pg:
             recorditr = warcitr_to_recorditr(warcitr)
-            recorditr_to_pg(recorditr, connection, sourceinfo['id_source'])
+            recorditr_to_pg(recorditr, connection, sourceinfo['id_source'], metahtml_max_recall=metahtml_max_recall)
 
 
 ################################################################################
@@ -497,6 +536,7 @@ if __name__ == '__main__':
     logging.basicConfig(
         format='%(asctime)s %(levelname)-8s %(message)s',
         level=logging.INFO,
+        force=True,
         )
 
     # run the downloader

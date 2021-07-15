@@ -29,6 +29,8 @@ services:
     build: ./services/pg
     command: postgres -c config_file=/etc/postgresql.conf
     labels: ['com.citusdata.role=Worker']
+    deploy:
+      replicas: 8
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
     env_file:
@@ -39,6 +41,6 @@ networks:
   default:
     name: novichenko
 
-volumes:
-  novichenko_data:
-  novichenko_fastdata:
+#volumes:
+#  novichenko_data:
+#  novichenko_fastdata:
