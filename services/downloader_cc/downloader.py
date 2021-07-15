@@ -13,10 +13,10 @@ import logging
 import re
 import psutil
 import os
-import psycopg2
+import psycopg
 import random
-import sqlalchemy
-import sqlalchemy.exc
+#import sqlalchemy
+#import sqlalchemy.exc
 import time
 import traceback
 
@@ -82,34 +82,41 @@ def pg_sourceinfo(connection, source_name):
     This information can then be used to skip previously completed downloads,
     or resume unfinished downloads.
     '''
-    # create a new entry in the source table for this warc file if no entry exists
-    try:
-        sql = sqlalchemy.sql.text('''
-        INSERT INTO source (name) VALUES (:name) RETURNING id;
-        ''')
-        res = connection.execute(sql,{'name':source_name})
-        sourceinfo = {
-            'id_source': res.first()['id'],
-            'urls_inserted': 0,
-            'finished_at': None,
-            }
+    with connection.cursor() as cursor:
 
-    # if an entry already exists in source
-    except sqlalchemy.exc.IntegrityError:
+        # create a new entry in the source table for this warc file if no entry exists
+        try:
+           #sql = sqlalchemy.sql.text('''
+           #INSERT INTO source (name) VALUES (:name) RETURNING id;
+           #''')
+           #res = connection.execute(sql,{'name':source_name})
+            sql = '''
+            INSERT INTO source (name) VALUES (%(name)s) RETURNING id;
+            '''
+            cursor.execute(sql, {'name':source_name})
+            row = cursor.fetchone()
+            sourceinfo = {
+                'id_source': row[0],
+                'urls_inserted': 0,
+                'finished_at': None,
+                }
 
-        logging.debug(f"name='{source_name}' exists in source")
+        # if an entry already exists in source
+        except psycopg.errors.UniqueViolation: # FIXME: make this error more specific?
 
-        # get info from the source table about previous runs
-        sql = sqlalchemy.sql.text('''
-        SELECT id,urls_inserted,finished_at FROM source WHERE name=:name;
-        ''')
-        res = connection.execute(sql,{'name':source_name})
-        row = res.first()
-        sourceinfo = {
-            'id_source': row['id'],
-            'urls_inserted': row['urls_inserted'],
-            'finished_at': row['finished_at'],
-            }
+            logging.debug(f"name='{source_name}' exists in source")
+
+            # get info from the source table about previous runs
+            sql = '''
+            SELECT id,urls_inserted,finished_at FROM source WHERE name=%(name)s;
+            '''
+            cursor.execute(sql, {'name':source_name})
+            row = cursor.fetchone()
+            sourceinfo = {
+                'id_source': row[0],
+                'urls_inserted': row[1],
+                'finished_at': row[2],
+                }
 
     logging.debug(f'source_name={source_name}, id_source={sourceinfo["id_source"]}')
     return sourceinfo
@@ -183,10 +190,11 @@ def recorditr_to_pg(recorditr, connection, id_source, metahtml_max_recall=False,
         bulk_insert(connection, id_source, batch)
 
     # finished loading the file, so update the source table
-    sql = sqlalchemy.sql.text('''
-    UPDATE source SET finished_at=now() where id=:id;
-    ''')
-    res = connection.execute(sql,{'id':id_source})
+    with connection.cursor() as cursor:
+        sql = '''
+        UPDATE source SET finished_at=now() where id=%(id)s;
+        '''
+        cursor.execute(sql, {'id':id_source})
 
 
 def bulk_insert(connection, id_source, batch):
@@ -213,20 +221,24 @@ def bulk_insert(connection, id_source, batch):
             tsv_title = chajda.tsvector.lemmatize(lang_iso, meta['title']['best']['value'])
             tsv_content = chajda.tsvector.lemmatize(lang_iso, meta['content']['best']['value']['text'])
             batch_view.append({
-                'url' : url,
-                'language' : language,
-                'timestamp_published' : timestamp_published,
-                'title' : meta['title']['best']['value'],
-                'description' : meta['description']['best']['value'],
-                'content' : meta['content']['best']['value']['html'],
-                'tsv_title' : tsv_title,
-                'tsv_content' : tsv_content,
+                #'url' : url,
+                'host_surt': url,
+                'hostpath_surt': url,
+                'language': language,
+                'timestamp_published': timestamp_published,
+                'title': meta['title']['best']['value'],
+                'description': meta['description']['best']['value'],
+                'content': meta['content']['best']['value']['html'],
+                'tsv_title': tsv_title,
+                'tsv_content': tsv_content,
                 })
             for focus,context in chajda.tsvector.tsvector_to_contextvectors(language, tsv_content, n=2).items():
                 batch_contextvector.append({
-                    'url': url,
+                    #'url': url,
+                    'host_surt': url,
+                    'hostpath_surt': url,
                     'timestamp_published': timestamp_published,
-                    'context': context.tolist(),
+                    'context': context,
                     'count': 1, # FIXME: this number is currently not calculated by chajda
                     'focus': focus,
                     'language': language,
@@ -243,34 +255,48 @@ def bulk_insert(connection, id_source, batch):
     for attempt_count in itertools.count():
         try:
             # enter a transaction so that we update both the metahtml tables and the source table consistently
-            with connection.begin():
+            with connection.transaction():
+              with connection.cursor() as cursor:
 
                 # update urls_inserted in the source table
-                sql = sqlalchemy.sql.text('''
-                SELECT urls_inserted FROM source WHERE id=:id_source FOR UPDATE;
-                ''')
-                res = connection.execute(sql,{'id_source':id_source})
-                urls_inserted = res.first()['urls_inserted']
+                sql = '''
+                SELECT urls_inserted FROM source WHERE id=%(id_source)s FOR UPDATE;
+                '''
+                cursor.execute(sql, {'id_source':id_source})
+                row = cursor.fetchone()
+                urls_inserted = row[0]
 
-                sql = sqlalchemy.sql.text('''
-                UPDATE source SET urls_inserted=:urls_inserted WHERE id=:id_source;
-                ''')
-                res = connection.execute(sql,{'id_source':id_source, 'urls_inserted':urls_inserted+len(batch)})
+                sql = '''
+                UPDATE source SET urls_inserted=%(urls_inserted)s WHERE id=%(id_source)s;
+                '''
+                cursor.execute(sql,{'id_source':id_source, 'urls_inserted':urls_inserted+len(batch)})
 
                 # log our update
                 logging.info(f'bulk_insert: id_source={id_source}, urls_inserted={urls_inserted}, len(batch)={len(batch)}, len(batch_view)={len(batch_view)}, len(batch_contextvector)={len(batch_contextvector)}')
 
+                def copy_from_batch(tablename, batch):
+                    if len(batch) > 0:
+                        keys = sorted(batch[0].keys())
+                        sql = 'COPY '+tablename+'('+','.join(keys)+') FROM STDIN'
+                        with cursor.copy(sql) as copy:
+                            for record in batch:
+                                copy.write_row([record[key] for key in keys])
+
+                from psycopg.types.string import StrDumper
+                import numpy as np
+                class NumpyDumper(StrDumper):
+                    def dump(self, obj):
+                        return super().dump('['+str(obj.tolist())[1:-1]+']')
+                cursor.adapters.register_dumper(np.ndarray, NumpyDumper)
+
                 # insert into metahtml
-                keys = ['accessed_at', 'id_source', 'url', 'jsonb']
-                sql = sqlalchemy.sql.text(f'''
-                    INSERT INTO metahtml ({','.join(keys)}) VALUES'''+
-                    ','.join(['(' + ','.join([f':{key}{i}' for key in keys]) + ')' for i in range(len(batch))])
-                    )
-                res = connection.execute(sql,{
-                    key+str(i) : d[key]
-                    for key in keys
-                    for i,d in enumerate(batch)
-                    })
+                copy_from_batch('metahtml', batch)
+                copy_from_batch('metahtml_view', batch_view)
+                copy_from_batch('contextvector', batch_contextvector)
+                """
+                with cursor.copy('COPY metahtml(accessed_at,id_source,url,jsonb) FROM STDIN') as copy:
+                    for record in batch:
+                        copy.write_row([record['accessed_at'],record['id_source'],record['url'],record['jsonb']])
 
                 # insert into metahtml_view
                 if len(batch_view) > 0:
@@ -297,6 +323,7 @@ def bulk_insert(connection, id_source, batch):
                         for i,d in enumerate(batch_contextvector)
                         for key in d.keys()
                         })
+                """
 
                 # if we've made it to this point in the code,
                 # the insert was successful,
@@ -304,12 +331,7 @@ def bulk_insert(connection, id_source, batch):
                 return
 
         # in the event of deadlock, perform the exponential backoff
-        # FIXME:
-        # OperationalError can correspond to many things,
-        # some of which should be caught here,
-        # and some of which should actually crash the program;
-        # I can't find good documentation on all the possible causes, though
-        except (psycopg2.errors.DeadlockDetected, sqlalchemy.exc.OperationalError) as e:
+        except psycopg.errors.DeadlockDetected as e:
             sleep_time = min(2**attempt_count, 60*5) + random.random()*10
             logging.exception(f'{type(e)}, sleep_time={sleep_time}')
             time.sleep(sleep_time)
@@ -470,11 +492,12 @@ def download_warc(surt, *, worker=0, num_workers=1, max_urls_to_download:int=Non
     # create database connection
     import sqlalchemy
     dburl = f'postgresql://{os.environ["POSTGRES_USER"]}:{os.environ["POSTGRES_PASSWORD"]}@pg:5432/{os.environ["POSTGRES_NAME"]}'
-    engine = sqlalchemy.create_engine(dburl, connect_args={
-        'application_name': 'metahtml',
-        'connect_timeout': 60*60
-        })  
-    connection = engine.connect()
+   #engine = sqlalchemy.create_engine(dburl, connect_args={
+   #    'application_name': 'metahtml',
+   #    'connect_timeout': 60*60
+   #    })  
+   #connection = engine.connect()
+    connection = psycopg.connect(dburl, autocommit=True)
 
     # download sourceinfo from db
     warcfile = data_dir + f'/warc_new2/{surt}-{crawl}-{worker:04}-of-{num_workers:04}.warc.gz'
