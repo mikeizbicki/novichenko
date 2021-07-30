@@ -218,6 +218,9 @@ def get_timeplot_data(time_lo_def, time_hi_def, terms, normalize, terms_normaliz
 
     
 def get_search_results(tsquery, filter_hosts, time_lo, time_hi, orderby):
+    if len(tsquery) == 0:
+        orderby = None
+
     sql_search = (f'''
     SELECT 
         id,
@@ -312,7 +315,7 @@ def get_sentiment(time_lo_def, time_hi_def, terms, pos_words, neg_words):
     bind_params['time_lo'] = time_lo_def
     bind_params['time_hi'] = time_hi_def
     bind_params['projectionvector'] = list(projectionvector)
-    bind_params['focus'] = terms[0]
+    bind_params['focus'] = terms[0] if len(terms) > 0 else None
     res = do_query('sentiments', sql, bind_params)
     data = {
         'xs': [ row.x for row in res ],
