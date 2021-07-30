@@ -57,14 +57,6 @@ RUN cd /tmp \
  && make USE_PGXS=1 install \
  && rm -rf /tmp/rum
 
-# install vector
-RUN cd /tmp \
- && git clone --branch v0.1.7 https://github.com/ankane/pgvector \
- && cd pgvector \
- && make -j \
- && make install \
- && rm -rf /tmp/pgvector
-
 # build chajda's dependencies;
 # these rarely change, so we want to ensure this build step gets cached;
 # the ADD commands ensure that the dependencies will get rebuilt whenever they actually change
@@ -76,6 +68,14 @@ RUN cd /tmp \
  && git checkout notes \
  && sh install_dependencies.sh \
  && rm -rf /tmp/chajda
+
+# install vector
+RUN cd /tmp \
+ && git clone https://github.com/mikeizbicki/pgvector \
+ && cd pgvector \
+ && make -j \
+ && make install \
+ && rm -rf /tmp/pgvector
 
 # install pgrollup's dependencies
 ADD https://raw.githubusercontent.com/mikeizbicki/pgrollup/citus/install_dependencies.sh /tmp/deps/pgrollup/install_dependencies.sh

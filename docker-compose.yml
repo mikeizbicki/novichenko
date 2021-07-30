@@ -28,9 +28,8 @@ services:
   citus_worker:
     build: ./services/pg
     command: postgres -c config_file=/etc/postgresql.conf
-    labels: ['com.citusdata.role=Worker']
     deploy:
-      replicas: 8
+      replicas: 2
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
     env_file:

@@ -54,6 +54,9 @@ def search():
         terms_normalize = None
 
     # access the database
+    neg_words = ['sad','misery','dissatisfaction','bore']
+    pos_words = ['happy','joy','pleasure','delight']
+    sentiment_data = get_sentiment(time_lo_def, time_hi_def, terms, pos_words, neg_words)
     timeplot_data = get_timeplot_data(time_lo_def, time_hi_def, terms, normalize, terms_normalize)
     search_results = get_search_results(tsquery, filter_hosts, time_lo, time_hi, orderby)
 
@@ -65,6 +68,7 @@ def search():
         normalize = normalize,
         search_results = search_results,
         timeplot_data = timeplot_data,
+        sentiment_data = sentiment_data,
         terms_combinations_pretty = terms_combinations_pretty,
         )
     
@@ -144,8 +148,11 @@ def get_term_counts(time_lo_def, time_hi_def, terms):
 def get_timeplot_data(time_lo_def, time_hi_def, terms, normalize, terms_normalize):
     '''
     FIXME:
-    This should obey the property that the term_counts with multiple terms is alsways <= term_counts with the individual terms,
+    This should obey the property that the term_counts with multiple terms is always <= term_counts with the individual terms,
     but this is a bit difficult to write a doctest for.
+
+    FIXME:
+    does not support OR or NOT clauses
     '''
     sql_total = (f'''
     select
@@ -213,6 +220,7 @@ def get_timeplot_data(time_lo_def, time_hi_def, terms, normalize, terms_normaliz
 def get_search_results(tsquery, filter_hosts, time_lo, time_hi, orderby):
     sql_search = (f'''
     SELECT 
+        id,
         unsurt(hostpath_surt) as url,
         url_host(unsurt(hostpath_surt)) AS host,
         title,
@@ -260,3 +268,58 @@ def get_search_results(tsquery, filter_hosts, time_lo, time_hi, orderby):
     for i,host in enumerate(filter_hosts):
         binds[f'host{i}'] = host
     return do_query('search', sql_search, binds)
+
+
+def get_sentiment(time_lo_def, time_hi_def, terms, pos_words, neg_words):
+    '''
+    FIXME:
+    does not support OR or NOT clause
+    '''
+    projectionvector = (
+        [ 0.02957594,  0.50386024, -2.6844428 ,  0.6105701 ,  2.1159103 ,
+         -1.84395   , -2.579988  , -0.03845882,  0.581807  ,  2.0521002 ,
+          0.57888997,  2.045848  ,  1.2586529 ,  0.05062222,  0.77035975,
+         -0.07423502,  2.436877  ,  2.097585  , -2.9644618 , -3.0558    ,
+          2.4757    ,  2.79049   , -0.35434967,  1.3205721 ,  1.9617298 ,
+         -0.07862997,  0.5482297 , -1.35866   , -0.1098249 , -2.9464078 ,
+          0.35745955,  2.06783   , -2.087224  ,  1.266543  ,  0.19132555,
+         -1.54833   ,  0.66981   ,  2.02947   , -0.32838506, -0.588573  ,
+          2.154276  , -0.06101902, -1.401586  ,  1.176679  ,  0.7171189 ,
+         -0.91807485, -0.21014398, -2.991881  , -0.5503142 ,  2.348786  ])
+    #projectionvector = chajda.tsvector.make_projectionvector(pos_words, neg_words)
+    logging.info('projectionvector='+str(projectionvector))
+
+    sql = (f'''
+    select
+        extract(epoch from x.time ) as x,
+        sentiment
+    from (
+        select generate_series(:time_lo, :time_hi, '1 month'::interval) as time
+    ) as x
+    left outer join (
+        select
+            timestamp_published_month as time,
+            "avg(context)" <#> :projectionvector :: vector as sentiment
+        from contextvector_month
+        where timestamp_published_month >= :time_lo
+          and timestamp_published_month <  :time_hi
+          and "contextvector.focus" = :focus
+    ) sentiment using(time)
+    order by x asc
+    ''')
+
+    bind_params = {}
+    bind_params['time_lo'] = time_lo_def
+    bind_params['time_hi'] = time_hi_def
+    bind_params['projectionvector'] = list(projectionvector)
+    bind_params['focus'] = terms[0]
+    res = do_query('sentiments', sql, bind_params)
+    data = {
+        'xs': [ row.x for row in res ],
+        'sentiments': [ row.sentiment for row in res ],
+        }
+    logging.info('data='+str(data))
+
+    return data
+
+

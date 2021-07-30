@@ -28,6 +28,9 @@ RUN mkdir -p $LOGDIR \
  && chown app $LOGDIR \
  && chgrp app $LOGDIR
 
+# janky install of psycopg3
+RUN pip install psycopg[binary] -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/
+
 # copy files to container
 COPY . $HOME
 RUN chown -R app $HOME \

@@ -110,7 +110,7 @@ const _stepAfter  = stepped({align:  1});
 
 width = 800; //document.querySelector("main").offsetWidth;
 height = 200; //width/3;
-let data = [
+let timeplot_data = [
     [{%for x in timeplot_data['xs']%} {{x}}, {%endfor%}],
     [{%for y in timeplot_data['term_counts']%} {{y}}, {%endfor%}],
     [{%for y in timeplot_data['term_counts_lo']%} {{y}}, {%endfor%}],
@@ -174,10 +174,10 @@ let opts = {
   ],
   scales: {
     x: {
-      // snap x-zoom to exact data values
+      // snap x-zoom to exact timeplot_data values
       range: (u, min, max) => [
-        data[0][u.valToIdx(min)],
-        data[0][u.valToIdx(max)],
+        timeplot_data[0][u.valToIdx(min)],
+        timeplot_data[0][u.valToIdx(max)],
       ],
     },
 },
@@ -219,13 +219,87 @@ let opts = {
   }
 };
 
-let u = new uPlot(opts, data, document.querySelector("main div.box"));
+let u  = new uPlot(opts, timeplot_data, document.querySelector("main div.box"));
 </script>
 
 
 
 
 <h2>Sentiment</h2>
+<script>
+let sentiment_data = [
+    [{%for x in sentiment_data['xs']%} {{x}}, {%endfor%}],
+    [{%for y in sentiment_data['sentiments']%} {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
+];
+let opts_sentiment = {
+  id: "sentiments",
+  width: width,
+  height: height,
+  series: [
+    {},
+    {
+      // initial toggled state (optional)
+      show: true,
+
+      // in-legend display
+      label: "sentiment",
+
+      // series style
+      stroke: "red",
+      width: 1,
+      drawStyle: 0,
+      paths: _stepAfter,
+    },
+  ],
+  scales: {
+    x: {
+      // snap x-zoom to exact timeplot_data values
+      range: (u, min, max) => [
+        timeplot_data[0][u.valToIdx(min)],
+        timeplot_data[0][u.valToIdx(max)],
+      ],
+    },
+},
+  hooks: {
+    init: [
+        u => {
+          // on double click, we fully zoom out the plot;
+          // then we change the url to have no time filter
+          u.root.querySelector(".u-over").ondblclick = e => {
+            u.setScale('x', {} );
+            url = removeURLParameter(removeURLParameter(window.location.href, 'time_lo'), 'time_hi')
+            console.log('reset time_lo,time_hi: url='+url)
+            window.location.href = url
+          }
+
+          // on page load, we zoom the plot in to the time filter range
+          let time_lo = getParameterByName('time_lo');
+          let time_hi = getParameterByName('time_hi');
+          if (!(time_lo === null || time_hi === null)) {
+            let min = new Date(time_lo).valueOf()/1000;
+            let max = new Date(time_hi).valueOf()/1000;
+            u.setScale('x', {min, max} );
+          }
+        }
+      ],
+    setSelect: [
+      u => {
+        // whenever the user zooms in on the plot,
+        // we update the time filter and change the url to match
+        let time_lo_tmp = new Date(u.posToVal(u.select.left, 'x')*1000);
+        let time_lo = new Date(time_lo_tmp.getFullYear(), time_lo_tmp.getMonth(), 1).toISOString().split('T')[0].slice(0,-2)+'01';
+        let time_hi_tmp = new Date(u.posToVal(u.select.left + u.select.width, 'x')*1000);
+        let time_hi = new Date(time_hi_tmp.getFullYear(), time_hi_tmp.getMonth()+1, 1).toISOString().split('T')[0];
+        url = updateURLParameter((updateURLParameter(window.location.href, 'time_lo', time_lo)), 'time_hi', time_hi)
+        console.log('new time_lo,time_hi: url='+url)
+        window.location.href = url
+      }
+    ]
+  }
+};
+
+let u2 = new uPlot(opts_sentiment, sentiment_data, document.querySelector("main div.box"));
+</script>
 <div>
 </div>
 
@@ -256,6 +330,10 @@ document.getElementById('orderby').addEventListener('change', orderby_onchange);
             <!-- {{result.accessed_at}} -- -->
             <a href='/host/{{result.host}}'>{{result.host}}</a>
             {{result.rank}}
+            &nbsp;
+            &nbsp;
+            &nbsp;
+            id={{result.id}}
         </div>
         <div class=result_title><a href="/metahtml?url={{result.url}}">{{result.title}}</a></div>
         <div class=result_description>{{result.description}}</div>

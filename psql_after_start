@@ -5,18 +5,29 @@
 SELECT citus_set_coordinator_host('pg');
 SELECT * from citus_add_node('novichenko_citus_worker_1', 5432);
 SELECT * from citus_add_node('novichenko_citus_worker_2', 5432);
+/*
 SELECT * from citus_add_node('novichenko_citus_worker_3', 5432);
 SELECT * from citus_add_node('novichenko_citus_worker_4', 5432);
 SELECT * from citus_add_node('novichenko_citus_worker_5', 5432);
 SELECT * from citus_add_node('novichenko_citus_worker_6', 5432);
 SELECT * from citus_add_node('novichenko_citus_worker_7', 5432);
 SELECT * from citus_add_node('novichenko_citus_worker_8', 5432);
+*/
 SELECT citus_drain_node('pg',5432); -- this may need to be run multiple times if there's not enough connections available
 
 SELECT create_distributed_table('metahtml_view', 'host_surt');
 SELECT create_distributed_table('metahtml_rollup_langmonth_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
-
-SELECT create_distributed_table('metahtml_rollup_wordcontexthost_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_textlangmonth_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_langmonth_host_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_textlangmonth_host_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_langday_host_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_textlangday_host_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('contextvector', 'focus');
+SELECT create_distributed_table('contextvector_day_raw', 'contextvector.focus', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_month_raw', 'contextvector.focus', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_host_raw', 'contextvector.focus', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_hostday_raw', 'contextvector.focus', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_hostmonth_raw', 'contextvector.focus', colocate_with=>'contextvector');
 
 --------------------------------------------------------------------------------
 -- health of the citus cluster
@@ -70,7 +81,7 @@ FROM citus_shards
 JOIN pg_dist_placement USING (shardid)
 JOIN pg_dist_node USING (groupid)
 GROUP BY pg_dist_node.nodename
-ORDER BY pg_dist_node.nodename;
+ORDER BY pg_dist_node.nodename
 );
 
 

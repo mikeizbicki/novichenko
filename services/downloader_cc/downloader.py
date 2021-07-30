@@ -28,6 +28,103 @@ from urllib.parse import urlparse
 from collections import Counter
 
 ################################################################################
+# surt helper functions
+################################################################################
+
+# FIXME:
+# these functions are directly adapted from the schema.sql file;
+# it's super annoying that we are duplicating this functionality in two languages;
+# probably we should make python's surt library the definitive choice,
+# and then just create SQL bindings to this library
+
+def host_simplify(host):
+    '''
+    >>> host_simplify('cnn.com')
+    'cnn.com'
+    >>> host_simplify('www.cnn.com')
+    'cnn.com'
+    >>> host_simplify('www2.cnn.com')
+    'cnn.com'
+    >>> host_simplify('www5.cnn.com')
+    'cnn.com'
+    >>> host_simplify('www577.cnn.com')
+    'cnn.com'
+    >>> host_simplify('bbc.co.uk')
+    'bbc.co.uk'
+    >>> host_simplify('www.bbc.co.uk')
+    'bbc.co.uk'
+    >>> host_simplify('en.wikipedia.org')
+    'en.wikipedia.org'
+    >>> host_simplify('m.wikipedia.org')
+    'wikipedia.org'
+    >>> host_simplify('naenara.com.kp')
+    'naenara.com.kp'
+    '''
+    m = re.match(r'^www\d*\.(.*)', host)
+    if m and m.group(1):
+        return m.group(1)
+    m = re.match(r'^m\.(.*)', host)
+    if m and m.group(1):
+        return m.group(1)
+    return host
+
+
+def url_host_surt(url):
+    '''
+    >>> url_host_surt('https://example.com')
+    'com,example)'
+    >>> url_host_surt('https://example.com/')
+    'com,example)'
+    >>> url_host_surt('https://example.com/#test')
+    'com,example)'
+    >>> url_host_surt('https://example.com/?param=12')
+    'com,example)'
+    >>> url_host_surt('https://example.com/path/to')
+    'com,example)'
+    >>> url_host_surt('https://example.com/path/to/')
+    'com,example)'
+    >>> url_host_surt('https://example.com/path/to/#test')
+    'com,example)'
+    >>> url_host_surt('https://example.com/path/to/?param=12')
+    'com,example)'
+    >>> url_host_surt('https://Example.com/Path/To/?Param=12')
+    'com,example)'
+    '''
+    url_parsed = urlparse(url)
+    host_surt = ','.join(reversed(host_simplify(url_parsed.hostname).split('.'))).lower() + ')'
+    return host_surt
+
+
+def url_hostpath_surt(url):
+    '''
+    >>> url_hostpath_surt('https://example.com')
+    'com,example)'
+    >>> url_hostpath_surt('https://example.com/')
+    'com,example)'
+    >>> url_hostpath_surt('https://example.com/#test')
+    'com,example)'
+    >>> url_hostpath_surt('https://example.com/?param=12')
+    'com,example)'
+    >>> url_hostpath_surt('https://example.com/path/to')
+    'com,example)/path/to'
+    >>> url_hostpath_surt('https://example.com/path/to/')
+    'com,example)/path/to'
+    >>> url_hostpath_surt('https://example.com/path/to/#test')
+    'com,example)/path/to'
+    >>> url_hostpath_surt('https://example.com/path/to/?param=12')
+    'com,example)/path/to'
+    >>> url_hostpath_surt('https://Example.com/Path/To/?Param=12')
+    'com,example)/path/to'
+    '''
+    url_parsed = urlparse(url)
+    host_surt = ','.join(reversed(host_simplify(url_parsed.hostname).split('.'))).lower() + ')'
+    path = url_parsed.path.lower()
+    if len(path)>0 and path[-1] == '/':
+        path = path[:-1]
+    return host_surt + path
+
+
+################################################################################
 # async downloader
 ################################################################################
 
@@ -122,7 +219,7 @@ def pg_sourceinfo(connection, source_name):
     return sourceinfo
 
 
-def recorditr_to_pg(recorditr, connection, id_source, metahtml_max_recall=False, batch_size=10):
+def recorditr_to_pg(recorditr, connection, id_source, metahtml_max_recall=False, batch_size=100):
     '''
     Insert each record in recorditr into the database.
     This function will create a new entry in the source table if source_name does not already exist.
@@ -216,15 +313,13 @@ def bulk_insert(connection, id_source, batch):
         url = item['url']
         try:
             lang_iso = meta['language']['best']['value'][:2]
-            language = meta['language']['best']['value']
             timestamp_published = meta['timestamp.published']['best']['value']['lo']
             tsv_title = chajda.tsvector.lemmatize(lang_iso, meta['title']['best']['value'])
             tsv_content = chajda.tsvector.lemmatize(lang_iso, meta['content']['best']['value']['text'])
             batch_view.append({
-                #'url' : url,
-                'host_surt': url,
-                'hostpath_surt': url,
-                'language': language,
+                'host_surt': url_host_surt(url),
+                'hostpath_surt': url_hostpath_surt(url),
+                'language': lang_iso,
                 'timestamp_published': timestamp_published,
                 'title': meta['title']['best']['value'],
                 'description': meta['description']['best']['value'],
@@ -232,16 +327,15 @@ def bulk_insert(connection, id_source, batch):
                 'tsv_title': tsv_title,
                 'tsv_content': tsv_content,
                 })
-            for focus,context in chajda.tsvector.tsvector_to_contextvectors(language, tsv_content, n=2).items():
+            for focus,context in chajda.tsvector.tsvector_to_contextvectors(lang_iso, tsv_content, n=2).items():
                 batch_contextvector.append({
-                    #'url': url,
-                    'host_surt': url,
-                    'hostpath_surt': url,
+                    'host_surt': url_host_surt(url),
+                    'hostpath_surt': url_hostpath_surt(url),
                     'timestamp_published': timestamp_published,
                     'context': context,
                     'count': 1, # FIXME: this number is currently not calculated by chajda
                     'focus': focus,
-                    'language': language,
+                    'language': lang_iso,
                     })
 
         # whenever the url does not correspond to an article, the code above throws an exception;
@@ -331,7 +425,9 @@ def bulk_insert(connection, id_source, batch):
                 return
 
         # in the event of deadlock, perform the exponential backoff
-        except psycopg.errors.DeadlockDetected as e:
+        # FIXME:
+        # I don't understand why the InternalError_ gets thrown sometimes
+        except (psycopg.errors.DeadlockDetected,psycopg.errors.InternalError_) as e:
             sleep_time = min(2**attempt_count, 60*5) + random.random()*10
             logging.exception(f'{type(e)}, sleep_time={sleep_time}')
             time.sleep(sleep_time)
@@ -376,8 +472,9 @@ def mk_cdxiter(cdxfiles, filter_mime=True, filter_status=True, filter_duplicates
                     continue
 
                 if filter_duplicates:
-                    url_parsed = urlparse(data['url'])
-                    hostpath = url_parsed.hostname + url_parsed.path
+                   #url_parsed = urlparse(data['url'])
+                   #url_parsed.hostname + url_parsed.path
+                    hostpath = url_hostpath_surt(data['url'])
                     if hostpath in hostpaths_cdx:
                         url_counts['filter_duplicates_cdx'] += 1
                         continue
@@ -406,7 +503,7 @@ def mk_cdxiter(cdxfiles, filter_mime=True, filter_status=True, filter_duplicates
         logging.info(f"url_counts['{k}'] = {v}  or  {100*v/total_urls:0.2f}%")
 
 
-def cdxiter_to_warcitr(cdxiter, semsize=400, batchsize=1000):
+def cdxiter_to_warcitr(cdxiter, semsize=100, batchsize=100):
     '''
     Iterates over the data in cdxiter in order to download the warc entries from common crawl;
     then combines these warc entries into a single warc file.
@@ -421,7 +518,7 @@ def cdxiter_to_warcitr(cdxiter, semsize=400, batchsize=1000):
             url = 'https://commoncrawl.s3.amazonaws.com/' + data['filename']
             content = await get(url, data['offset'], data['length'])
             logging.debug(f"get('{url}', {data['offset']}, {data['length']})")
-            return content
+            return url,content
 
     # use an infinite loop to process the input cdxiter generator;
     # internally to the infinite loop we will process the generator in batches,
@@ -442,10 +539,14 @@ def cdxiter_to_warcitr(cdxiter, semsize=400, batchsize=1000):
         loop = asyncio.get_event_loop()
         batch_tasks = asyncio.wait([ asyncio.ensure_future(get_warcfile(data)) for data in batch ])
         done, pending = loop.run_until_complete(batch_tasks)
+        warc_records = []
         for future in done:
-            downloaded_warc_entry = future.result()
-            mb_downloaded += len(downloaded_warc_entry)/(1024**2)
-            yield downloaded_warc_entry
+            url,warc_record = future.result()
+            mb_downloaded += len(warc_record)/(1024**2)
+            warc_records.append([url,warc_record])
+        warc_records.sort()
+        for url,warc_record in warc_records:
+            yield warc_record
 
         # generate logging info
         mem = psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2
@@ -557,7 +658,7 @@ if __name__ == '__main__':
 
     # setup logging
     logging.basicConfig(
-        format='%(asctime)s %(levelname)-8s %(message)s',
+        format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
         level=logging.INFO,
         force=True,
         )
