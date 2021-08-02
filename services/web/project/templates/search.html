@@ -102,6 +102,79 @@ let sentiment_data = [
 ];
 </script>
 
+<script>
+function sma(xs,ys,window_size,weights) {
+    var ys2 = [];
+    var last_ys = null;
+    var average = null;
+    var total = null;
+    var last_notnull = 0;
+    for (var i=0; i<ys.length; i++) {
+        if (ys[i] === null)
+            next_ys = last_ys;
+        else {
+            next_ys = ys[i];
+            last_notnull = i;
+        }
+        if (next_ys !== null) {
+            total = 0;
+            average = 0;
+            for (j=i; j>=0 && j>i-window_size; j--) {
+                if (weights[j]>0)
+                    average += ys[j]*weights[j];
+                    total += weights[j];
+            }
+            average = average / total;
+        }
+        ys2.push(average);
+        last_ys = next_ys;
+    }
+    for (i=last_notnull; i<ys2.length; i++) {
+        ys2[i] = null;
+    }
+    return ys2;
+}
+
+function ema(xs,ys,alpha,weights) {
+    var ys2 = [];
+    var last_ys = null;
+    var ema = ys[0];
+    var beta = 0;
+    for (var i=0; i<ys.length; i++) {
+        if (ys[i] === null)
+            next_ys = last_ys;
+        else
+            next_ys = ys[i];
+        if (weights[i] > 0) {
+            if (ema === null) 
+                ema = next_ys;
+            else
+                beta = alpha**weights[i];
+                ema = beta*ema + (1-beta)*next_ys;
+            console.log('i='+i+', ema='+ema);
+        }
+        ys2.push(ema);
+        last_ys = next_ys;
+    }
+    return ys2;
+}
+function ema_simple(xs,ys,alpha,weights=null) {
+    var ys2 = [];
+    var last_ys = null;
+    var ema = ys[0];
+    for (var i=0; i<ys.length; i++) {
+        if (ys[i] === null)
+            next_ys = last_ys;
+        else
+            next_ys = ys[i];
+        ema = alpha*ema + (1-alpha)*next_ys;
+        ys2.push(ema);
+        last_ys = next_ys;
+    }
+    return ys2;
+}
+</script>
+
 <!--
 <h2>Articles per Month</h2>
 Normalization
@@ -360,11 +433,22 @@ let u2 = new uPlot(opts_sentiment, sentiment_data, document.querySelector("main 
         </li>
         <li>pos words <input id=pos_words name=pos_words form=form_search readonly value="{{pos_words}}"></li>
         <li>neg words <input id=neg_words name=neg_words form=form_search readonly value="{{neg_words}}"></li>
-        <li>Smoothing
-            <select name="projection_smoothing" id="projection_smoothing">
-              <option value="none"             selected>none</option>
-              <option value="weighted_average"         >weighted average</option>
-            </select>
+        <li>window size 
+            <br>
+            <input type="range"  id="window_size_range" min="1" max="60" value="6" oninput="set_window_size(this.value)" />
+            <br>
+            <input type="number" id="window_size_number" min="1" max="60" value="6" oninput="set_window_size(this.value)" />
+            <script>
+            function set_window_size(window_size) {
+                document.getElementById('window_size_range').value = window_size;
+                document.getElementById('window_size_number').value = window_size;
+                trace3.y = sma([],sentiment_data[1],window_size,timeplot_data[1]);
+                Plotly.redraw('plotly');
+                // FIXME:
+                // redraw() is slow because it redraws everything;
+                // we should only replot the changed traces
+            }
+            </script>
         </li>
     </ul>
 </aside>
@@ -384,8 +468,6 @@ function timeConverter(UNIX_timestamp){
   //var time = date + ' ' + month + ' ' + year ; //+ ' ' + hour + ':' + min + ':' + sec ;
   //return time;
 }
-console.log(timeplot_data[0].map(timeConverter))
-console.log(timeplot_data[1])
 
 var trace1 = {
   x: timeplot_data[0].map(timeConverter),
@@ -414,11 +496,27 @@ var trace2 = {
   },
   mode: 'markers',
   marker: {
-    size: 3,
+    size: 2,
   }
 };
 
-var data = [trace1, trace2];
+var trace3 = {
+  x: sentiment_data[0].map(timeConverter),
+  y: sma([],sentiment_data[1],6,timeplot_data[1]),
+  xaxis: 'x2',
+  yaxis: 'y2',
+  type: 'scatter',
+  hoverinfo: 'skip',
+  line: {
+    shape: 'spline',
+    color: '#55f',
+    width: 1,
+  },
+  mode: 'line',
+};
+
+
+var data = [trace1, trace2, trace3];
 
 var layout = {
     grid: {rows: 2, columns: 1}, //, pattern: 'independent'},
