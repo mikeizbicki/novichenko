@@ -1,32 +1,15 @@
 {% extends "base.html" %}
 
 {% block header %}
-<form action='/search' method='get'>
+<form id=form_search action='/search' method='get'>
     <input type=text name=query value='{{query}}' />
     <button type="submit"><i class="fa fa-search"></i></button>
 </form>
 {% endblock %}
 
 {% block content %}
-<h2>Articles per Month</h2>
-Normalization
-<select name="normalize" id="normalize">
-  <option value="none" {%if normalize=="none"     %}selected{%endif%}>none</option>
-  <option value="total"{%if normalize=="total"    %}selected{%endif%}>total</option>
-  {% for selected,term_combination in terms_combinations_pretty %}
-  <option value='query:{{term_combination|safe}}' {%if selected%}selected{%endif%}>query:{{term_combination|safe}}</option>
-  {% endfor %}
-</select>
 
 <script>
-function normalize_onchange(e) {
-    window.location.href = updateURLParameter(window.location.href, 'normalize', e.currentTarget.value);
-}
-document.getElementById('normalize').addEventListener('change', normalize_onchange);
-</script>
-
-<script>
-
 // see: https://stackoverflow.com/questions/901115/how-can-i-get-query-string-values-in-javascript
 function getParameterByName(name, url = window.location.href) {
     name = name.replace(/[\[\]]/g, '\\$&');
@@ -104,18 +87,45 @@ function updateURLParameter(url, param, paramVal)
     var rows_txt = temp + "" + param + "=" + paramVal;
     return baseURL + "?" + newAdditionalURL + rows_txt;
 }
+</script>
 
-const { linear, spline, stepped, bars } = uPlot.paths;
-const _stepAfter  = stepped({align:  1});
-
-width = 800; //document.querySelector("main").offsetWidth;
-height = 200; //width/3;
+<script>
 let timeplot_data = [
     [{%for x in timeplot_data['xs']%} {{x}}, {%endfor%}],
     [{%for y in timeplot_data['term_counts']%} {{y}}, {%endfor%}],
     [{%for y in timeplot_data['term_counts_lo']%} {{y}}, {%endfor%}],
     [{%for y in timeplot_data['term_counts_hi']%} {{y}}, {%endfor%}],
 ];
+let sentiment_data = [
+    [{%for x in sentiment_data['xs']%} {{x}}, {%endfor%}],
+    [{%for y in sentiment_data['sentiments']%} {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
+];
+</script>
+
+<!--
+<h2>Articles per Month</h2>
+Normalization
+<select name="normalize" id="normalize">
+  <option value="none" {%if normalize=="none"     %}selected{%endif%}>none</option>
+  <option value="total"{%if normalize=="total"    %}selected{%endif%}>total</option>
+  {% for selected,term_combination in terms_combinations_pretty %}
+  <option value='query:{{term_combination|safe}}' {%if selected%}selected{%endif%}>query:{{term_combination|safe}}</option>
+  {% endfor %}
+</select>
+
+<script>
+function normalize_onchange(e) {
+    window.location.href = updateURLParameter(window.location.href, 'normalize', e.currentTarget.value);
+}
+document.getElementById('normalize').addEventListener('change', normalize_onchange);
+</script>
+
+<script>
+const { linear, spline, stepped, bars } = uPlot.paths;
+const _stepAfter  = stepped({align:  1});
+
+width = 800; //document.querySelector("main").offsetWidth;
+height = 200; //width/3;
 let opts = {
   id: "timeplot",
   width: width,
@@ -227,10 +237,6 @@ let u  = new uPlot(opts, timeplot_data, document.querySelector("main div.box"));
 
 <h2>Sentiment</h2>
 <script>
-let sentiment_data = [
-    [{%for x in sentiment_data['xs']%} {{x}}, {%endfor%}],
-    [{%for y in sentiment_data['sentiments']%} {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
-];
 let opts_sentiment = {
   id: "sentiments",
   width: width,
@@ -302,11 +308,190 @@ let u2 = new uPlot(opts_sentiment, sentiment_data, document.querySelector("main 
 </script>
 <div>
 </div>
+-->
+
+<aside id=aside_xy>
+    <h3>Mentions Options</h3>
+    Normalization
+    <select name="normalize" id="normalize">
+      <option value="none" {%if normalize=="none"     %}selected{%endif%}>none</option>
+      <option value="total"{%if normalize=="total"    %}selected{%endif%}>total</option>
+      {% for selected,term_combination in terms_combinations_pretty %}
+      <option value='query:{{term_combination|safe}}' {%if selected%}selected{%endif%}>query:{{term_combination|safe}}</option>
+      {% endfor %}
+    </select>
+</aside>
+<aside id=aside_x2y2 style='margin-top:250px'>
+    <h3>Projection Options</h3>
+    <ul>
+        <li>axis
+            <select name=projection_axis id=projection_axis form=form_search>
+            </select>
+            <script>
+                var axis_dictionary = {
+                    'angry': ['angry agitated', 'calm serene'],
+                    'erotic': ['erotic sexy sensual', 'unerotic polite propper'],
+                    'gender': ['male father king he', 'female mother queen she'],
+                    'happiness': ['happy joy pleasure delight', 'sad misery dissatisfaction bore'],
+                    'life': ['alive active awake living', 'dead inactive asleep dying'],
+                    'scary': ['scary afraid fear', 'relaxing unafraid comfort'], 
+                    'sentiment': ['positive good better best', 'negative bad worse worst'], 
+                    'success': ['successful', 'failed'],
+                    'threat': ['danger war menace enemy', 'safety peace friend ally'],
+                    'wealth': ['wealth affluence rich asset', 'debt poverty poor liability'],
+                };
+                projection_axis = getParameterByName('projection_axis');
+                select = document.getElementById('projection_axis')
+                for (key in axis_dictionary) {
+                    option = document.createElement("option");
+                    option.textContent = key;
+                    option.value = key;
+                    if (projection_axis == key) {
+                        option.selected = 'selected';
+                    }
+                    select.add(option);
+                }
+                select.addEventListener('change', function(e) {
+                    document.getElementById('pos_words').value = axis_dictionary[e.currentTarget.value][0];
+                    document.getElementById('neg_words').value = axis_dictionary[e.currentTarget.value][1];
+                    document.getElementById('form_search').submit();
+                });
+            </script>
+        </li>
+        <li>pos words <input id=pos_words name=pos_words form=form_search readonly value="{{pos_words}}"></li>
+        <li>neg words <input id=neg_words name=neg_words form=form_search readonly value="{{neg_words}}"></li>
+        <li>Smoothing
+            <select name="projection_smoothing" id="projection_smoothing">
+              <option value="none"             selected>none</option>
+              <option value="weighted_average"         >weighted average</option>
+            </select>
+        </li>
+    </ul>
+</aside>
+<div id=plotly></div>
+<script>
+// taken from: https://stackoverflow.com/questions/847185/convert-a-unix-timestamp-to-time-in-javascript
+function timeConverter(UNIX_timestamp){
+  var a = new Date(UNIX_timestamp * 1000);
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var year = a.getFullYear();
+  var month = 1+a.getMonth(); //months[a.getMonth()];
+  var date = a.getDate();
+  var hour = a.getHours();
+  var min = a.getMinutes();
+  var sec = a.getSeconds();
+  return year+'-'+month+'-'+date;// +' ' + hour + ':' + min + ':' + sec ;
+  //var time = date + ' ' + month + ' ' + year ; //+ ' ' + hour + ':' + min + ':' + sec ;
+  //return time;
+}
+console.log(timeplot_data[0].map(timeConverter))
+console.log(timeplot_data[1])
+
+var trace1 = {
+  x: timeplot_data[0].map(timeConverter),
+  y: timeplot_data[1],
+  name: 'rate',
+  type: 'scatter',
+  hoverinfo: 'skip',
+  line: {
+    shape: 'hv',
+    color: '#55f',
+    width: 1,
+  },
+};
+
+var trace2 = {
+  x: sentiment_data[0].map(timeConverter),
+  y: sentiment_data[1],
+  xaxis: 'x2',
+  yaxis: 'y2',
+  type: 'scatter',
+  hoverinfo: 'skip',
+  line: {
+    shape: 'hv',
+    color: '#55f',
+    width: 1,
+  },
+  mode: 'markers',
+  marker: {
+    size: 3,
+  }
+};
+
+var data = [trace1, trace2];
+
+var layout = {
+    grid: {rows: 2, columns: 1}, //, pattern: 'independent'},
+    showlegend: false,
+    //margin: {pad: 0},
+    margin:{
+        l:50,
+        r:0,
+        t:0,
+        b:0,
+        pad:0,
+    },
+    xaxis: {
+        autorange: true,
+        rangeselector: {
+          buttons: [
+            {
+              count: 1,
+              label: '1y',
+              step: 'year',
+              stepmode: 'backward'
+            },
+            {
+              count: 10,
+              label: '10y',
+              step: 'year',
+              stepmode: 'backward'
+            },
+            {
+              count: 100,
+              label: '100y',
+              step: 'year',
+              stepmode: 'backward'
+            },
+            {step: 'all'}
+          ]},
+        //rangeslider: {},
+        type: 'date'
+    },
+    xaxis2: {
+      matches: 'x'
+    },
+    yaxis: {
+      fixedrange: true,
+      title: {
+        text: 'mentions',
+        font: {
+          family: 'Courier New, monospace',
+          size: 18,
+          color: '#7f7f7f'
+        }
+      }
+    },
+    yaxis2: {
+      fixedrange: true,
+      title: {
+        text: 'projection',
+        font: {
+          family: 'Courier New, monospace',
+          size: 18,
+          color: '#7f7f7f'
+        }
+      }
+    }
+};
+
+Plotly.newPlot('plotly', data, layout, {displaylogo: false});
+</script>
 
 
-
-
-<h2>Search Results</h2>
+<h2>Document Results
+<aside>
+    <h3>Document Options</h3>
 Order by
 <select name="orderby" id="orderby">
   <option value="none"      {%if orderby=="none"     %}selected{%endif%}>none</option>
@@ -320,6 +505,8 @@ function orderby_onchange(e) {
 }
 document.getElementById('orderby').addEventListener('change', orderby_onchange);
 </script>
+</aside>
+</h2>
 
 <div>
     {%for result in search_results%}

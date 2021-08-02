@@ -175,3 +175,13 @@ input[type='checkbox'] {
   font-family: "Courier New", monospace;
   white-space: pre;
 }
+
+aside, .aside {
+    display: inline;
+    float: right;
+    position: relative;
+    width: 20vw;
+    margin-right: -22vw;
+    font-size: 16px;
+    font-weight: normal;
+}

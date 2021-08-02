@@ -54,8 +54,8 @@ def search():
         terms_normalize = None
 
     # access the database
-    neg_words = ['sad','misery','dissatisfaction','bore']
-    pos_words = ['happy','joy','pleasure','delight']
+    pos_words = request.args.get('pos_words','sad misery dissatisfaction bore').split()
+    neg_words = request.args.get('neg_words','happy joy pleasure delight').split()
     sentiment_data = get_sentiment(time_lo_def, time_hi_def, terms, pos_words, neg_words)
     timeplot_data = get_timeplot_data(time_lo_def, time_hi_def, terms, normalize, terms_normalize)
     search_results = get_search_results(tsquery, filter_hosts, time_lo, time_hi, orderby)
@@ -64,6 +64,8 @@ def search():
     return render_template(
         'search.html',
         query = query,
+        pos_words = ' '.join(pos_words),
+        neg_words = ' '.join(neg_words),
         orderby = orderby,
         normalize = normalize,
         search_results = search_results,
@@ -278,7 +280,8 @@ def get_sentiment(time_lo_def, time_hi_def, terms, pos_words, neg_words):
     FIXME:
     does not support OR or NOT clause
     '''
-    projectionvector = (
+    import numpy as np
+    projectionvector = np.array(
         [ 0.02957594,  0.50386024, -2.6844428 ,  0.6105701 ,  2.1159103 ,
          -1.84395   , -2.579988  , -0.03845882,  0.581807  ,  2.0521002 ,
           0.57888997,  2.045848  ,  1.2586529 ,  0.05062222,  0.77035975,
@@ -289,7 +292,8 @@ def get_sentiment(time_lo_def, time_hi_def, terms, pos_words, neg_words):
          -1.54833   ,  0.66981   ,  2.02947   , -0.32838506, -0.588573  ,
           2.154276  , -0.06101902, -1.401586  ,  1.176679  ,  0.7171189 ,
          -0.91807485, -0.21014398, -2.991881  , -0.5503142 ,  2.348786  ])
-    #projectionvector = chajda.tsvector.make_projectionvector(pos_words, neg_words)
+    projectionvector, badwords = chajda.tsvector.make_projectionvector(neg_words, pos_words)
+    logging.info('badwords='+str(badwords))
     logging.info('projectionvector='+str(projectionvector))
 
     sql = (f'''
@@ -314,7 +318,7 @@ def get_sentiment(time_lo_def, time_hi_def, terms, pos_words, neg_words):
     bind_params = {}
     bind_params['time_lo'] = time_lo_def
     bind_params['time_hi'] = time_hi_def
-    bind_params['projectionvector'] = list(projectionvector)
+    bind_params['projectionvector'] = projectionvector.tolist()
     bind_params['focus'] = terms[0] if len(terms) > 0 else None
     res = do_query('sentiments', sql, bind_params)
     data = {
