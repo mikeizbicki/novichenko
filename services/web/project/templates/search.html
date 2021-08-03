@@ -3,6 +3,12 @@
 {% block header %}
 <form id=form_search action='/search' method='get'>
     <input type=text name=query value='{{query}}' />
+    {% if time_lo_args %}
+    <input type=hidden name=time_lo value='{{time_lo_args}}' />
+    {% endif %}
+    {% if time_hi_args %}
+    <input type=hidden name=time_hi value='{{time_hi_args}}' />
+    {% endif %}
     <button type="submit"><i class="fa fa-search"></i></button>
 </form>
 {% endblock %}
@@ -91,19 +97,22 @@ function updateURLParameter(url, param, paramVal)
 
 <script>
 let timeplot_data = [
-    [{%for x in timeplot_data['xs']%} {{x}}, {%endfor%}],
+    [{%for x in timeplot_data['xs']%} '{{x}}', {%endfor%}],
     [{%for y in timeplot_data['term_counts']%} {{y}}, {%endfor%}],
     [{%for y in timeplot_data['term_counts_lo']%} {{y}}, {%endfor%}],
     [{%for y in timeplot_data['term_counts_hi']%} {{y}}, {%endfor%}],
 ];
 let sentiment_data = [
-    [{%for x in sentiment_data['xs']%} {{x}}, {%endfor%}],
+    [{%for x in sentiment_data['xs']%} '{{x}}', {%endfor%}],
     [{%for y in sentiment_data['sentiments']%} {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
 ];
 </script>
 
 <script>
 function sma(xs,ys,window_size,weights) {
+    {% if granularity=="day" %}
+    window_size *= 30;
+    {% endif %}
     var ys2 = [];
     var last_ys = null;
     var average = null;
@@ -175,224 +184,47 @@ function ema_simple(xs,ys,alpha,weights=null) {
 }
 </script>
 
-<!--
-<h2>Articles per Month</h2>
-Normalization
-<select name="normalize" id="normalize">
-  <option value="none" {%if normalize=="none"     %}selected{%endif%}>none</option>
-  <option value="total"{%if normalize=="total"    %}selected{%endif%}>total</option>
-  {% for selected,term_combination in terms_combinations_pretty %}
-  <option value='query:{{term_combination|safe}}' {%if selected%}selected{%endif%}>query:{{term_combination|safe}}</option>
-  {% endfor %}
-</select>
-
-<script>
-function normalize_onchange(e) {
-    window.location.href = updateURLParameter(window.location.href, 'normalize', e.currentTarget.value);
-}
-document.getElementById('normalize').addEventListener('change', normalize_onchange);
-</script>
-
-<script>
-const { linear, spline, stepped, bars } = uPlot.paths;
-const _stepAfter  = stepped({align:  1});
-
-width = 800; //document.querySelector("main").offsetWidth;
-height = 200; //width/3;
-let opts = {
-  id: "timeplot",
-  width: width,
-  height: height,
-  series: [
-    {},
-    {
-      // initial toggled state (optional)
-      show: true,
-
-      // in-legend display
-      label: "query occurences",
-
-      // series style
-      stroke: "red",
-      width: 1,
-      drawStyle: 0,
-      paths: _stepAfter,
-    },
-    {
-      // initial toggled state (optional)
-      show: true,
-
-      // in-legend display
-      label: "lower bound",
-
-      // series style
-      stroke: "red",
-      width: 1,
-      drawStyle: 0,
-      paths: _stepAfter,
-    },
-    {
-      // initial toggled state (optional)
-      show: true,
-
-      // in-legend display
-      label: "upper bound",
-
-      // series style
-      stroke: "red",
-      width: 1,
-      drawStyle: 0,
-      paths: _stepAfter,
-    },
-  ],
-  bands: [
-    {
-      series: [2,3],
-      fill: "rgba(255,0,0,0.1)",
-    },
-    {
-      series: [3,1],
-      fill: "rgba(255,0,0,0.1)",
-    }
-  ],
-  scales: {
-    x: {
-      // snap x-zoom to exact timeplot_data values
-      range: (u, min, max) => [
-        timeplot_data[0][u.valToIdx(min)],
-        timeplot_data[0][u.valToIdx(max)],
-      ],
-    },
-},
-  hooks: {
-    init: [
-        u => {
-          // on double click, we fully zoom out the plot;
-          // then we change the url to have no time filter
-          u.root.querySelector(".u-over").ondblclick = e => {
-            u.setScale('x', {} );
-            url = removeURLParameter(removeURLParameter(window.location.href, 'time_lo'), 'time_hi')
-            console.log('reset time_lo,time_hi: url='+url)
-            window.location.href = url
-          }
-
-          // on page load, we zoom the plot in to the time filter range
-          let time_lo = getParameterByName('time_lo');
-          let time_hi = getParameterByName('time_hi');
-          if (!(time_lo === null || time_hi === null)) {
-            let min = new Date(time_lo).valueOf()/1000;
-            let max = new Date(time_hi).valueOf()/1000;
-            u.setScale('x', {min, max} );
-          }
-        }
-      ],
-    setSelect: [
-      u => {
-        // whenever the user zooms in on the plot,
-        // we update the time filter and change the url to match
-        let time_lo_tmp = new Date(u.posToVal(u.select.left, 'x')*1000);
-        let time_lo = new Date(time_lo_tmp.getFullYear(), time_lo_tmp.getMonth(), 1).toISOString().split('T')[0].slice(0,-2)+'01';
-        let time_hi_tmp = new Date(u.posToVal(u.select.left + u.select.width, 'x')*1000);
-        let time_hi = new Date(time_hi_tmp.getFullYear(), time_hi_tmp.getMonth()+1, 1).toISOString().split('T')[0];
-        url = updateURLParameter((updateURLParameter(window.location.href, 'time_lo', time_lo)), 'time_hi', time_hi)
-        console.log('new time_lo,time_hi: url='+url)
-        window.location.href = url
-      }
-    ]
-  }
-};
-
-let u  = new uPlot(opts, timeplot_data, document.querySelector("main div.box"));
-</script>
-
-
-
-
-<h2>Sentiment</h2>
-<script>
-let opts_sentiment = {
-  id: "sentiments",
-  width: width,
-  height: height,
-  series: [
-    {},
-    {
-      // initial toggled state (optional)
-      show: true,
-
-      // in-legend display
-      label: "sentiment",
-
-      // series style
-      stroke: "red",
-      width: 1,
-      drawStyle: 0,
-      paths: _stepAfter,
-    },
-  ],
-  scales: {
-    x: {
-      // snap x-zoom to exact timeplot_data values
-      range: (u, min, max) => [
-        timeplot_data[0][u.valToIdx(min)],
-        timeplot_data[0][u.valToIdx(max)],
-      ],
-    },
-},
-  hooks: {
-    init: [
-        u => {
-          // on double click, we fully zoom out the plot;
-          // then we change the url to have no time filter
-          u.root.querySelector(".u-over").ondblclick = e => {
-            u.setScale('x', {} );
-            url = removeURLParameter(removeURLParameter(window.location.href, 'time_lo'), 'time_hi')
-            console.log('reset time_lo,time_hi: url='+url)
-            window.location.href = url
-          }
-
-          // on page load, we zoom the plot in to the time filter range
-          let time_lo = getParameterByName('time_lo');
-          let time_hi = getParameterByName('time_hi');
-          if (!(time_lo === null || time_hi === null)) {
-            let min = new Date(time_lo).valueOf()/1000;
-            let max = new Date(time_hi).valueOf()/1000;
-            u.setScale('x', {min, max} );
-          }
-        }
-      ],
-    setSelect: [
-      u => {
-        // whenever the user zooms in on the plot,
-        // we update the time filter and change the url to match
-        let time_lo_tmp = new Date(u.posToVal(u.select.left, 'x')*1000);
-        let time_lo = new Date(time_lo_tmp.getFullYear(), time_lo_tmp.getMonth(), 1).toISOString().split('T')[0].slice(0,-2)+'01';
-        let time_hi_tmp = new Date(u.posToVal(u.select.left + u.select.width, 'x')*1000);
-        let time_hi = new Date(time_hi_tmp.getFullYear(), time_hi_tmp.getMonth()+1, 1).toISOString().split('T')[0];
-        url = updateURLParameter((updateURLParameter(window.location.href, 'time_lo', time_lo)), 'time_hi', time_hi)
-        console.log('new time_lo,time_hi: url='+url)
-        window.location.href = url
-      }
-    ]
-  }
-};
-
-let u2 = new uPlot(opts_sentiment, sentiment_data, document.querySelector("main div.box"));
-</script>
-<div>
-</div>
--->
-
 <aside id=aside_xy>
     <h3>Mentions Options</h3>
-    Normalization
-    <select name="normalize" id="normalize">
-      <option value="none" {%if normalize=="none"     %}selected{%endif%}>none</option>
-      <option value="total"{%if normalize=="total"    %}selected{%endif%}>total</option>
-      {% for selected,term_combination in terms_combinations_pretty %}
-      <option value='query:{{term_combination|safe}}' {%if selected%}selected{%endif%}>query:{{term_combination|safe}}</option>
-      {% endfor %}
-    </select>
+    <ul>
+        <li>axis
+            <select name="mentions_axis" id="mentions_axis" form=form_search>>
+              <option value="host"    {%if mentions_axis=="host"     %}selected{%endif%}>host</option>
+              <option value="hostpath"{%if mentions_axis=="hostpath" %}selected{%endif%}>hostpath</option>
+            </select>
+            <script>
+                document.getElementById('mentions_axis').addEventListener('change', function(e) {
+                    document.getElementById('form_search').submit();
+                });
+            </script>
+        </li>
+        <li>normalization
+            <select name="normalize" id="normalize" form=form_search>>
+              <option value="none" {%if normalize=="none"     %}selected{%endif%}>none</option>
+              <option value="total"{%if normalize=="total"    %}selected{%endif%}>total</option>
+              {% for selected,term_combination in terms_combinations_pretty %}
+              <option value='query:{{term_combination|safe}}' {%if selected%}selected{%endif%}>query:{{term_combination|safe}}</option>
+              {% endfor %}
+            </select>
+            <script>
+                document.getElementById('normalize').addEventListener('change', function(e) {
+                    document.getElementById('form_search').submit();
+                });
+            </script>
+        </li>
+        <li>granularity
+            <select name="granularity" id="granularity" form=form_search>
+              <option value="year"  {%if granularity=="year" %}selected{%endif%}>year</option>
+              <option value="month" {%if granularity=="month"%}selected{%endif%}>month</option>
+              <option value="day"   {%if granularity=="day"  %}selected{%endif%}>day</option>
+            </select>
+            <script>
+                document.getElementById('granularity').addEventListener('change', function(e) {
+                    document.getElementById('form_search').submit();
+                });
+            </script>
+        </li>
+    </ul>
 </aside>
 <aside id=aside_x2y2 style='margin-top:250px'>
     <h3>Projection Options</h3>
@@ -430,9 +262,11 @@ let u2 = new uPlot(opts_sentiment, sentiment_data, document.querySelector("main 
                     document.getElementById('form_search').submit();
                 });
             </script>
+            <br>
+            pos words <input id=pos_words name=pos_words form=form_search readonly value="{{pos_words}}">
+            <br>
+            neg words <input id=neg_words name=neg_words form=form_search readonly value="{{neg_words}}">
         </li>
-        <li>pos words <input id=pos_words name=pos_words form=form_search readonly value="{{pos_words}}"></li>
-        <li>neg words <input id=neg_words name=neg_words form=form_search readonly value="{{neg_words}}"></li>
         <li>window size 
             <br>
             <input type="range"  id="window_size_range" min="1" max="60" value="6" oninput="set_window_size(this.value)" />
@@ -453,6 +287,8 @@ let u2 = new uPlot(opts_sentiment, sentiment_data, document.querySelector("main 
     </ul>
 </aside>
 <div id=plotly></div>
+
+
 <script>
 // taken from: https://stackoverflow.com/questions/847185/convert-a-unix-timestamp-to-time-in-javascript
 function timeConverter(UNIX_timestamp){
@@ -470,20 +306,23 @@ function timeConverter(UNIX_timestamp){
 }
 
 var trace1 = {
-  x: timeplot_data[0].map(timeConverter),
+  x: timeplot_data[0], //.map(timeConverter),
   y: timeplot_data[1],
   name: 'rate',
   type: 'scatter',
-  hoverinfo: 'skip',
+  //hoverinfo: 'skip',
   line: {
     shape: 'hv',
     color: '#55f',
     width: 1,
   },
+  marker: {
+    size: 1,
+  },
 };
 
 var trace2 = {
-  x: sentiment_data[0].map(timeConverter),
+  x: sentiment_data[0], //.map(timeConverter),
   y: sentiment_data[1],
   xaxis: 'x2',
   yaxis: 'y2',
@@ -501,7 +340,7 @@ var trace2 = {
 };
 
 var trace3 = {
-  x: sentiment_data[0].map(timeConverter),
+  x: sentiment_data[0], //.map(timeConverter),
   y: sma([],sentiment_data[1],6,timeplot_data[1]),
   xaxis: 'x2',
   yaxis: 'y2',
@@ -512,7 +351,9 @@ var trace3 = {
     color: '#55f',
     width: 1,
   },
-  mode: 'line',
+  marker: {
+    size: 1,
+  },
 };
 
 
@@ -584,6 +425,35 @@ var layout = {
 };
 
 Plotly.newPlot('plotly', data, layout, {displaylogo: false});
+
+document.getElementById('plotly').on('plotly_relayout',
+function(eventdata){
+    var url = window.location.href;
+    var time_lo = eventdata['xaxis.range[0]'];
+    if (time_lo) {
+        if (getParameterByName('granularity') == 'day')
+            time_lo = time_lo.toString().slice(0,10);
+        if (getParameterByName('granularity') == 'month')
+            time_lo = time_lo.toString().slice(0,7)+'-01';
+        url = updateURLParameter(url, 'time_lo', time_lo);
+    }
+    else {
+        url = removeURLParameter(url, 'time_lo');
+    }
+    var time_hi = eventdata['xaxis.range[1]'];
+    if (time_hi) {
+        if (getParameterByName('granularity') == 'day')
+            time_hi = time_hi.toString().slice(0,10);
+        if (getParameterByName('granularity') == 'month')
+            time_hi = time_hi.toString().slice(0,7)+'-01';
+        url = updateURLParameter(url, 'time_hi', time_hi);
+    }
+    else {
+        url = removeURLParameter(url, 'time_hi');
+    }
+    console.log(url);
+    window.location.href = url;
+});
 </script>
 
 

@@ -961,11 +961,98 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlang_host TABLESPACE fastdata AS (
 
 --------------------
 
+CREATE MATERIALIZED VIEW metahtml_rollup_langyear TABLESPACE fastdata AS (
+    SELECT
+        language, 
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        count(hostpath_surt) AS hostpath_surt,
+        count(host_surt) AS host_surt
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_year
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langyear_host TABLESPACE fastdata AS (
+    SELECT
+        language, 
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        count(hostpath_surt) AS hostpath_surt,
+        host_surt
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_year,host_surt
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangyear TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        count(hostpath_surt) AS hostpath_surt,
+        count(host_surt) AS host_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_year
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangyear_host TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        count(hostpath_surt) AS hostpath_surt,
+        host_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_year,host_surt
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langyear_theta TABLESPACE fastdata AS (
+    SELECT
+        language, 
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(host_surt) AS host_surt
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_year
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langyear_host_theta TABLESPACE fastdata AS (
+    SELECT
+        language, 
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        host_surt
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_year,host_surt
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangyear_theta TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(host_surt) AS host_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_year
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangyear_host_theta TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        host_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_year,host_surt
+);
+
+--------------------
+
 CREATE MATERIALIZED VIEW metahtml_rollup_langmonth TABLESPACE fastdata AS (
     SELECT
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        count(hostpath_surt) AS hostpath_surt
+        count(hostpath_surt) AS hostpath_surt,
+        count(host_surt) AS host_surt
     FROM metahtml_view
     GROUP BY language,timestamp_published_month
 );
@@ -985,7 +1072,8 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth TABLESPACE fastdata AS (
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        count(hostpath_surt) AS hostpath_surt
+        count(hostpath_surt) AS hostpath_surt,
+        count(host_surt) AS host_surt
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_month
 );
@@ -1001,13 +1089,12 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_host TABLESPACE fastdata 
     GROUP BY alltext,language,timestamp_published_month,host_surt
 );
 
-----------
-
 CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_theta TABLESPACE fastdata AS (
     SELECT
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        theta_sketch_distinct(hostpath_surt) AS hostpath_surt
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(host_surt) AS host_surt
     FROM metahtml_view
     GROUP BY language,timestamp_published_month
 );
@@ -1027,7 +1114,8 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_theta TABLESPACE fastdata
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         date_trunc('month',timestamp_published) AS timestamp_published_month,
-        theta_sketch_distinct(hostpath_surt) AS hostpath_surt
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(host_surt) AS host_surt
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_month
 );
@@ -1049,7 +1137,8 @@ CREATE MATERIALIZED VIEW metahtml_rollup_langday TABLESPACE fastdata AS (
     SELECT
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
-        count(hostpath_surt) AS hostpath_surt
+        count(hostpath_surt) AS hostpath_surt,
+        count(host_surt) AS host_surt
     FROM metahtml_view
     GROUP BY language,timestamp_published_day
 );
@@ -1069,7 +1158,8 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangday TABLESPACE fastdata AS (
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
-        count(hostpath_surt) AS hostpath_surt
+        count(hostpath_surt) AS hostpath_surt,
+        count(host_surt) AS host_surt
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_day
 );
@@ -1080,6 +1170,48 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_host TABLESPACE fastdata AS
         language, 
         date_trunc('day',timestamp_published) AS timestamp_published_day,
         count(hostpath_surt) AS hostpath_surt,
+        host_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_day,host_surt
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langday_theta TABLESPACE fastdata AS (
+    SELECT
+        language, 
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(host_surt) AS host_surt
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_day
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_langday_host_theta TABLESPACE fastdata AS (
+    SELECT
+        language, 
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        host_surt
+    FROM metahtml_view
+    GROUP BY language,timestamp_published_day,host_surt
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_theta TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(host_surt) AS host_surt
+    FROM metahtml_view
+    GROUP BY alltext,language,timestamp_published_day
+);
+
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_host_theta TABLESPACE fastdata AS (
+    SELECT
+        unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
+        language, 
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         host_surt
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_day,host_surt
@@ -1104,7 +1236,7 @@ CREATE TABLE contextvector (
 );
 CREATE INDEX ON contextvector USING ivfflat (context vector_ip_ops) WITH (lists=100);
 
-CREATE MATERIALIZED VIEW contextvector_host AS (
+CREATE MATERIALIZED VIEW contextvector_focus_host AS (
     SELECT 
         vector_sum(context) as "sum(context)",
         sum(count) as "sum(count)",
@@ -1116,7 +1248,40 @@ CREATE MATERIALIZED VIEW contextvector_host AS (
     GROUP BY host_surt,focus
 );
 
+CREATE MATERIALIZED VIEW contextvector_year AS (
+    SELECT 
+        vector_sum(context) as "sum(context)",
+        sum(count) as "sum(count)",
+        vector_sum(context)/sum(count) as weighted_context,
+        vector_avg(context) as "avg(context)",
+        date_trunc('year',timestamp_published) AS timestamp_published_year
+    FROM contextvector
+    GROUP BY timestamp_published_year
+);
+
+CREATE MATERIALIZED VIEW contextvector_month AS (
+    SELECT 
+        vector_sum(context) as "sum(context)",
+        sum(count) as "sum(count)",
+        vector_sum(context)/sum(count) as weighted_context,
+        vector_avg(context) as "avg(context)",
+        date_trunc('month',timestamp_published) AS timestamp_published_month
+    FROM contextvector
+    GROUP BY timestamp_published_month
+);
+
 CREATE MATERIALIZED VIEW contextvector_day AS (
+    SELECT 
+        vector_sum(context) as "sum(context)",
+        sum(count) as "sum(count)",
+        vector_sum(context)/sum(count) as weighted_context,
+        vector_avg(context) as "avg(context)",
+        date_trunc('day',timestamp_published) AS timestamp_published_day
+    FROM contextvector
+    GROUP BY timestamp_published_day
+);
+
+CREATE MATERIALIZED VIEW contextvector_focusday AS (
     SELECT 
         vector_sum(context) as "sum(context)",
         sum(count) as "sum(count)",
@@ -1128,7 +1293,7 @@ CREATE MATERIALIZED VIEW contextvector_day AS (
     GROUP BY timestamp_published_day,focus
 );
 
-CREATE MATERIALIZED VIEW contextvector_hostday AS (
+CREATE MATERIALIZED VIEW contextvector_focusday_host AS (
     SELECT 
         vector_sum(context) as "sum(context)",
         sum(count) as "sum(count)",
@@ -1141,7 +1306,7 @@ CREATE MATERIALIZED VIEW contextvector_hostday AS (
     GROUP BY timestamp_published_day,host_surt,focus
 );
 
-CREATE MATERIALIZED VIEW contextvector_month AS (
+CREATE MATERIALIZED VIEW contextvector_focusmonth AS (
     SELECT 
         vector_sum(context) as "sum(context)",
         sum(count) as "sum(count)",
@@ -1153,7 +1318,7 @@ CREATE MATERIALIZED VIEW contextvector_month AS (
     GROUP BY timestamp_published_month,focus
 );
 
-CREATE MATERIALIZED VIEW contextvector_hostmonth AS (
+CREATE MATERIALIZED VIEW contextvector_focusmonth_host AS (
     SELECT 
         vector_sum(context) as "sum(context)",
         sum(count) as "sum(count)",
@@ -1164,6 +1329,31 @@ CREATE MATERIALIZED VIEW contextvector_hostmonth AS (
         focus
     FROM contextvector
     GROUP BY timestamp_published_month,host_surt,focus
+);
+
+CREATE MATERIALIZED VIEW contextvector_focusyear AS (
+    SELECT 
+        vector_sum(context) as "sum(context)",
+        sum(count) as "sum(count)",
+        vector_sum(context)/sum(count) as weighted_context,
+        vector_avg(context) as "avg(context)",
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        focus
+    FROM contextvector
+    GROUP BY timestamp_published_year,focus
+);
+
+CREATE MATERIALIZED VIEW contextvector_focusyear_host AS (
+    SELECT 
+        vector_sum(context) as "sum(context)",
+        sum(count) as "sum(count)",
+        vector_sum(context)/sum(count) as weighted_context,
+        vector_avg(context) as "avg(context)",
+        host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        focus
+    FROM contextvector
+    GROUP BY timestamp_published_year,host_surt,focus
 );
 
 ----
