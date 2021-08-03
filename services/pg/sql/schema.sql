@@ -1259,6 +1259,18 @@ CREATE MATERIALIZED VIEW contextvector_year AS (
     GROUP BY timestamp_published_year
 );
 
+CREATE MATERIALIZED VIEW contextvector_year_host AS (
+    SELECT 
+        vector_sum(context) as "sum(context)",
+        sum(count) as "sum(count)",
+        vector_sum(context)/sum(count) as weighted_context,
+        vector_avg(context) as "avg(context)",
+        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        host_surt
+    FROM contextvector
+    GROUP BY timestamp_published_year,host_surt
+);
+
 CREATE MATERIALIZED VIEW contextvector_month AS (
     SELECT 
         vector_sum(context) as "sum(context)",
@@ -1270,6 +1282,18 @@ CREATE MATERIALIZED VIEW contextvector_month AS (
     GROUP BY timestamp_published_month
 );
 
+CREATE MATERIALIZED VIEW contextvector_month_host AS (
+    SELECT 
+        vector_sum(context) as "sum(context)",
+        sum(count) as "sum(count)",
+        vector_sum(context)/sum(count) as weighted_context,
+        vector_avg(context) as "avg(context)",
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        host_surt
+    FROM contextvector
+    GROUP BY timestamp_published_month,host_surt
+);
+
 CREATE MATERIALIZED VIEW contextvector_day AS (
     SELECT 
         vector_sum(context) as "sum(context)",
@@ -1279,6 +1303,18 @@ CREATE MATERIALIZED VIEW contextvector_day AS (
         date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM contextvector
     GROUP BY timestamp_published_day
+);
+
+CREATE MATERIALIZED VIEW contextvector_day_host AS (
+    SELECT 
+        vector_sum(context) as "sum(context)",
+        sum(count) as "sum(count)",
+        vector_sum(context)/sum(count) as weighted_context,
+        vector_avg(context) as "avg(context)",
+        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        host_surt
+    FROM contextvector
+    GROUP BY timestamp_published_day,host_surt
 );
 
 CREATE MATERIALIZED VIEW contextvector_focusday AS (

@@ -232,7 +232,7 @@ def get_timeplot_data(time_lo_def, time_hi_def, terms, filter_hosts, normalize, 
             select
                 {mentions_axis}_surt as total,
                 timestamp_published_{granularity} as time
-            from metahtml_rollup_lang{granularity}{host}
+            from metahtml_rollup_lang{granularity}{host}_theta
             where "metahtml_view.language" = 'en'
               and timestamp_published_{granularity} >= :time_lo
               and timestamp_published_{granularity} <  :time_hi
