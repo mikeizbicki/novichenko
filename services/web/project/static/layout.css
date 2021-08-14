@@ -1,0 +1,86 @@
+
+.grid {
+  display: grid;
+  align-items: start;
+  grid-template-columns: 180px 800px 200px;
+  gap: 0;
+}
+
+header {
+  background-color: #eef;
+  grid-rows: 1;
+  grid-column-start: 1;
+  grid-column-end: 3;
+}
+
+main {
+  padding-top: 0.5rem;
+  padding-bottom: 2.5rem;    /* Footer height */
+}
+
+.logo {
+  //padding:10px;
+  padding-top: 20px;
+  padding-left: 30px;
+  padding-right: 10px;
+  padding-bottom: 0px;
+  /*
+  padding-top: 0.75rem;
+  padding-left: 0.75rem;
+  padding-bottom: 0.75rem;
+  */
+  display: grid;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.box {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  max-width: 800px;
+  margin: auto;
+}
+
+.search{
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.results {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-rows: 250px 250px auto;
+}
+
+aside, .aside {
+    display: grid;
+    grid-column:3;
+    /*float: right;
+    position: relative;*/
+    width: 20vw;
+    margin-right: -22vw;
+    font-size: 16px;
+    font-weight: normal;
+}
+
+#plotly {
+    height: 500px;
+    display: grid;
+    grid-row-start: 1;
+    grid-row-end: 3;
+    grid-column: 2;
+}
+
+.label {
+    /*
+    display: inline-block;
+    transform:rotate(-90deg);
+    transform-origin: top;
+    */
+}
+
+h3,h2 {
+    display: none;
+}

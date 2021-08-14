@@ -1,0 +1,85 @@
+<script src='https://cdn.plot.ly/plotly-2.3.0.min.js'></script>
+<script src='static/utils.js'></script>
+
+<main width=800px>
+<div id=wordcloud></div>
+</main>
+<script>
+var wordcloud_data = null;
+function load_wordcloud() {
+    const xhttp = new XMLHttpRequest();
+    xhttp.onload = function() {
+        wordcloud_data = JSON.parse(this.responseText);
+        console.log(wordcloud_data);
+
+        clip = parseFloat(getParameterByName('clip'));
+        div = parseFloat(getParameterByName('div'));
+        exp = parseFloat(getParameterByName('exp'));
+        console.log(exp);
+        let ys = [];
+        for (let i=0; i<wordcloud_data.projection.length; i++) {
+            //frequency_modification = wordcloud_data.projection[i]*(1-wordcloud_data.frequency[i])**exp;
+            f = wordcloud_data.frequency[i];
+            d = wordcloud_data.distance[i];
+            y = wordcloud_data.projection[i];
+            if (div) {
+                y /= d + div;
+            }
+            if (exp) {
+                y = y*(exp/(exp + f));
+            }
+            if (clip && d > clip) {
+                y = 0;
+            }
+            ys.push(y);
+        }
+
+        var trace1 = {
+            x: wordcloud_data.frequency,
+            y: ys,
+            distance: wordcloud_data.distance,
+            text: wordcloud_data.text,
+            marker: { size: wordcloud_data.distance, sizeref:4000, sizemode:'area' },
+            hovertemplate: '%{text} dist=%{marker.size:}',
+            mode: 'markers+text',
+            type: 'scatter',
+        }
+        var layout = {
+            height: 0.95*window.innerHeight,
+            width: 0.95*window.innerWidth,
+            showlegend: false,
+            //margin: {pad: 0},
+            margin:{
+                l:0,
+                r:0,
+                t:0,
+                b:0,
+                pad:0,
+            },
+            xaxis: {
+                autorange: true,
+                type: 'log',
+            },
+            yaxis: {
+                autorange: true,
+            },
+            config: { responsive: true }
+        };
+        Plotly.newPlot('wordcloud',[trace1], layout);
+    }
+    pos_words = getParameterByName('pos_words');
+    neg_words = getParameterByName('neg_words');
+    cloud_words = getParameterByName('cloud_words');
+    cloud_only = getParameterByName('cloud_only');
+    n = getParameterByName('n');
+    let url = "/json/wordcloud?";
+    if (pos_words) url+="&pos_words="+pos_words;
+    if (neg_words) url+="&neg_words="+neg_words;
+    if (cloud_words) url+="&cloud_words="+cloud_words;
+    if (cloud_only) url+="&cloud_only="+cloud_only;
+    if (n) url+="&n="+n;
+    xhttp.open("GET", url, true);
+    xhttp.send();
+}
+load_wordcloud();
+</script>

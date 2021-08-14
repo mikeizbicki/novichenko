@@ -20,3 +20,5 @@ logs
 
 services/downloader_cc/gensim-data/
 services/downloader_cc/pythainlp-data/
+services/downloader_cc/embeddings
+services/web/embeddings

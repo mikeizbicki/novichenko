@@ -3,24 +3,13 @@ body {
   margin: 0px;
   position: relative;
   min-height: 100vh;
+
   /*background-color: #eef;*/
 }
 
-header {
-  background-color: #eef;
-}
-
-main {
-  padding-top: 0.5rem;
-  padding-bottom: 2.5rem;    /* Footer height */
-}
-
-.box {
-  padding-top: 0.5rem;
-  padding-bottom: 0.5rem;
-  max-width: 800px;
-  margin: auto;
-}
+/*******************************************************************************
+ * layout
+ ******************************************************************************/
 
 /* Style the search box inside the navigation bar */
 form {
@@ -34,7 +23,7 @@ input[name=query] {
     padding: 6px 10px;
     margin: 0px;
     /*width: *;*/
-    width: 750px;
+    width: 650px;
     border: none;
     font-size: inherit;
 }
@@ -71,6 +60,7 @@ button:hover {
 
 .result {
   margin: 1em 0em;
+  width: 800px;
 }
 .result:hover {
     /*background-color: #eef;*/
@@ -176,12 +166,3 @@ input[type='checkbox'] {
   white-space: pre;
 }
 
-aside, .aside {
-    display: inline;
-    float: right;
-    position: relative;
-    width: 20vw;
-    margin-right: -22vw;
-    font-size: 16px;
-    font-weight: normal;
-}

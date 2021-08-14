@@ -87,6 +87,15 @@ RUN cd /tmp \
  && sh install_dependencies.sh \
  && rm -rf /tmp/pgrollup
 
+# install pg_artman
+# NOTE:
+# this is one of pgrollup's dependencies, but it needs to keep the /tmp/pg_partman dir for some reason?
+RUN cd /tmp \
+ && git clone https://github.com/pgpartman/pg_partman \
+ && cd pg_partman \
+ && make \
+ && make install
+
 # install chajda from the notes branch
 # FIXME:
 # should we add a git checkout version?

@@ -12,6 +12,7 @@ import gzip
 import logging
 import re
 import psutil
+import math
 import os
 import psycopg
 import random
@@ -21,6 +22,7 @@ import time
 import traceback
 
 import chajda.tsvector
+import chajda.embeddings
 import metahtml
 import metahtml.adblock
 
@@ -316,32 +318,40 @@ def bulk_insert(connection, id_source, batch):
             timestamp_published = meta['timestamp.published']['best']['value']['lo']
             tsv_title = chajda.tsvector.lemmatize(lang_iso, meta['title']['best']['value'])
             tsv_content = chajda.tsvector.lemmatize(lang_iso, meta['content']['best']['value']['text'])
+            title = meta['title']['best']['value']
+            description = meta['description']['best']['value']
+            content = meta['content']['best']['value']['html']
+            meta_has_info = True
+        # whenever the url does not correspond to an article, the code above throws an exception;
+        # in this case, we won't be adding to the batch_view or batch_contextvector variables
+        except (TypeError,KeyError):
+            logging.debug(f'no lang/title/content for url={url}')
+            meta_has_info = False
+
+        if meta_has_info:
             batch_view.append({
                 'host_surt': url_host_surt(url),
                 'hostpath_surt': url_hostpath_surt(url),
                 'language': lang_iso,
                 'timestamp_published': timestamp_published,
-                'title': meta['title']['best']['value'],
-                'description': meta['description']['best']['value'],
-                'content': meta['content']['best']['value']['html'],
+                'title': title,
+                'description': description,
+                'content': content,
                 'tsv_title': tsv_title,
                 'tsv_content': tsv_content,
                 })
-            for focus,context in chajda.tsvector.tsvector_to_contextvectors(lang_iso, tsv_content, n=2).items():
+            embedding = chajda.embeddings.get_embedding(lang=lang_iso, max_n=400000, max_d=None, storage_dir='./embeddings')
+            contextvectors = chajda.tsvector.tsvector_to_contextvectors(embedding, tsv_content, n=2, normalize=False)
+            for focus,[context,count] in contextvectors.items():
                 batch_contextvector.append({
                     'host_surt': url_host_surt(url),
                     'hostpath_surt': url_hostpath_surt(url),
                     'timestamp_published': timestamp_published,
-                    'context': context,
-                    'count': 1, # FIXME: this number is currently not calculated by chajda
+                    'context': context / math.sqrt(count),
+                    'count': 1, # FIXME: this is the number of urls not the number of words; should we fix that?
                     'focus': focus,
                     'language': lang_iso,
                     })
-
-        # whenever the url does not correspond to an article, the code above throws an exception;
-        # in this case, we won't be adding to the batch_view or batch_contextvector variables
-        except (TypeError,KeyError):
-            logging.debug(f'no lang/title/content for url={url}')
 
     # wrap the actual insert in an infinite loop;
     # the insert code can deadlock due to unique constraints,
@@ -625,7 +635,20 @@ def download_warc(surt, *, worker=0, num_workers=1, max_urls_to_download:int=Non
         # we are discarding the older crawls
         dirpath = data_dir + f'/cdx/{surt}/'
         cdx_paths = [ dirpath + filename for filename in os.listdir(dirpath) ]
-        cdx_paths.sort(reverse=True)
+
+        # NOTE:
+        # the sort order here determines the order that urls will be added to the database;
+        # this is important because duplicate urls will be skipped;
+        # there are two options:
+        # 1. sorting from lowest to highest (reverse=False) causes the first crawl of a url to be added;
+        #    the advantage here is that we know that no information from the "future" (e.g. ads, recent article links) 
+        #    will leak into the past;
+        # 2. sorting from highest to lowest (reverse=True) causes the most recent crawl to be added;
+        #    the advantage here is that websites occasionally change styles,
+        #    and the more recent styles are more likely to follow standards that make extracting content more reliable;
+        #    also, it can simplify testing since we'll get a broad range of dates in the db quickly
+        #
+        cdx_paths.sort(reverse=False)
     cdxiter = mk_cdxiter(cdx_paths, max_urls_to_download=max_urls_to_download)
 
     # filter the cdxiter so that only the entries applicable to the current worker are traversed

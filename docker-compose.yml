@@ -16,6 +16,7 @@ services:
   pg:
     build: ./services/pg
     command: postgres -c config_file=/etc/postgresql.conf
+    shm_size: 4gb
     labels: ['com.citusdata.role=Master']
     #volumes:
         # - novichenko_fastdata:/fastdata
@@ -28,6 +29,7 @@ services:
   citus_worker:
     build: ./services/pg
     command: postgres -c config_file=/etc/postgresql.conf
+    shm_size: 4gb
     deploy:
       replicas: 2
     environment:

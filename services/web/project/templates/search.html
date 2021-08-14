@@ -1,99 +1,9 @@
 {% extends "base.html" %}
 
 {% block header %}
-<form id=form_search action='/search' method='get'>
-    <input type=text name=query value='{{query}}' />
-    {% if time_lo_args %}
-    <input type=hidden name=time_lo value='{{time_lo_args}}' />
-    {% endif %}
-    {% if time_hi_args %}
-    <input type=hidden name=time_hi value='{{time_hi_args}}' />
-    {% endif %}
-    <button type="submit"><i class="fa fa-search"></i></button>
-</form>
 {% endblock %}
 
 {% block content %}
-
-<script>
-// see: https://stackoverflow.com/questions/901115/how-can-i-get-query-string-values-in-javascript
-function getParameterByName(name, url = window.location.href) {
-    name = name.replace(/[\[\]]/g, '\\$&');
-    var regex = new RegExp('[?&]' + name + '(=([^&#]*)|&|#|$)'),
-        results = regex.exec(url);
-    if (!results) return null;
-    if (!results[2]) return '';
-    return decodeURIComponent(results[2].replace(/\+/g, ' '));
-}
-
-// see: https://stackoverflow.com/questions/1634748/how-can-i-delete-a-query-string-parameter-in-javascript
-function removeURLParameter(url, parameter) {
-    //prefer to use l.search if you have a location/link object
-    var urlparts = url.split('?');
-    if (urlparts.length >= 2) {
-
-        var prefix = encodeURIComponent(parameter) + '=';
-        var pars = urlparts[1].split(/[&;]/g);
-
-        //reverse iteration as may be destructive
-        for (var i = pars.length; i-- > 0;) {
-            //idiom for string.startsWith
-            if (pars[i].lastIndexOf(prefix, 0) !== -1) {
-                pars.splice(i, 1);
-            }
-        }
-
-        return urlparts[0] + (pars.length > 0 ? '?' + pars.join('&') : '');
-    }
-    return url;
-}
-
-// see: https://stackoverflow.com/questions/1090948/change-url-parameters
-function updateURLParameter(url, param, paramVal)
-{
-    var TheAnchor = null;
-    var newAdditionalURL = "";
-    var tempArray = url.split("?");
-    var baseURL = tempArray[0];
-    var additionalURL = tempArray[1];
-    var temp = "";
-
-    if (additionalURL) 
-    {
-        var tmpAnchor = additionalURL.split("#");
-        var TheParams = tmpAnchor[0];
-            TheAnchor = tmpAnchor[1];
-        if(TheAnchor)
-            additionalURL = TheParams;
-
-        tempArray = additionalURL.split("&");
-
-        for (var i=0; i<tempArray.length; i++)
-        {
-            if(tempArray[i].split('=')[0] != param)
-            {
-                newAdditionalURL += temp + tempArray[i];
-                temp = "&";
-            }
-        }        
-    }
-    else
-    {
-        var tmpAnchor = baseURL.split("#");
-        var TheParams = tmpAnchor[0];
-            TheAnchor  = tmpAnchor[1];
-
-        if(TheParams)
-            baseURL = TheParams;
-    }
-
-    if(TheAnchor)
-        paramVal += "#" + TheAnchor;
-
-    var rows_txt = temp + "" + param + "=" + paramVal;
-    return baseURL + "?" + newAdditionalURL + rows_txt;
-}
-</script>
 
 <script>
 let timeplot_data = [
@@ -102,47 +12,71 @@ let timeplot_data = [
     [{%for y in timeplot_data['term_counts_lo']%} {{y}}, {%endfor%}],
     [{%for y in timeplot_data['term_counts_hi']%} {{y}}, {%endfor%}],
 ];
-let sentiment_data = [
+let sentiment_data_raw = [
     [{%for x in sentiment_data['xs']%} '{{x}}', {%endfor%}],
     [{%for y in sentiment_data['sentiments']%} {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
+    [{%for y in sentiment_data['counts']%}     {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
 ];
+
+// FIXME:
+// real slow!
+let randoms = [];
+let xs = [];
+let total_elements = sentiment_data_raw[2].reduce((a, b) => a + b, 0);
+let total_randoms = Math.min(10000.0,total_elements);
+let xs_index = 0;
+let randoms_at_index = 0;
+let variance = calc_variance(sentiment_data_raw[0]);
+
+let prime1 = 16769023;
+let prime2 = 1046527;
+
+for (var i=0; i<total_randoms && xs_index <sentiment_data_raw[0].length; i++) {
+    randoms_at_index += 1
+    if (randoms_at_index > sentiment_data_raw[2][xs_index]/total_elements*total_randoms) {
+        xs_index += 1;
+        randoms_at_index = 0;
+        i -= 1;
+    }
+    else {
+        if (sentiment_data_raw[1][xs_index] !== null) {
+            xs.push(sentiment_data_raw[0][xs_index])
+            // FIXME:
+            // this is real slow;
+            // the same technique can generate 2 random numbers;
+            // and we could use a faster random
+            let r1 = Math.random();
+            let r2 = Math.random();
+            //let random = (-5*Math.log(r1)**1)*Math.cos(2*Math.PI*r2);
+            let random = Math.sqrt(-2*Math.log(r1)**2)*Math.cos(2*Math.PI*r2);
+            randoms.push(sentiment_data_raw[1][xs_index]+random*variance);
+        }
+    }
+}
+
+var add_randoms=true;
+if (add_randoms) {
+    var sentiment_data = [
+        sentiment_data_raw[0].concat(xs),
+        sentiment_data_raw[1].concat(randoms),
+        ];
+}
+else {
+    var sentiment_data = [
+        sentiment_data_raw[0],
+        sentiment_data_raw[1],
+        ];
+}
+
+var sentiment_dots = 0;
+for (let i=0; i<sentiment_data[1].length; i++) {
+    if (sentiment_data[1][i]) {
+        sentiment_dots += 1;
+    }
+}
 </script>
 
 <script>
-function sma(xs,ys,window_size,weights) {
-    {% if granularity=="day" %}
-    window_size *= 30;
-    {% endif %}
-    var ys2 = [];
-    var last_ys = null;
-    var average = null;
-    var total = null;
-    var last_notnull = 0;
-    for (var i=0; i<ys.length; i++) {
-        if (ys[i] === null)
-            next_ys = last_ys;
-        else {
-            next_ys = ys[i];
-            last_notnull = i;
-        }
-        if (next_ys !== null) {
-            total = 0;
-            average = 0;
-            for (j=i; j>=0 && j>i-window_size; j--) {
-                if (weights[j]>0)
-                    average += ys[j]*weights[j];
-                    total += weights[j];
-            }
-            average = average / total;
-        }
-        ys2.push(average);
-        last_ys = next_ys;
-    }
-    for (i=last_notnull; i<ys2.length; i++) {
-        ys2[i] = null;
-    }
-    return ys2;
-}
 
 function ema(xs,ys,alpha,weights) {
     var ys2 = [];
@@ -184,7 +118,7 @@ function ema_simple(xs,ys,alpha,weights=null) {
 }
 </script>
 
-<aside id=aside_xy>
+<aside id=aside_xy style='grid-row: 1'>
     <h3>Mentions Options</h3>
     <ul>
         <li>axis
@@ -226,7 +160,7 @@ function ema_simple(xs,ys,alpha,weights=null) {
         </li>
     </ul>
 </aside>
-<aside id=aside_x2y2 style='margin-top:250px'>
+<aside id=aside_x2y2 style='grid-row:2'>
     <h3>Projection Options</h3>
     <ul>
         <li>axis
@@ -234,16 +168,19 @@ function ema_simple(xs,ys,alpha,weights=null) {
             </select>
             <script>
                 var axis_dictionary = {
-                    'angry': ['angry agitated', 'calm serene'],
-                    'erotic': ['erotic sexy sensual', 'unerotic polite propper'],
+                    'anger': ['angry agitated', 'calm serene'],
                     'gender': ['male father king he', 'female mother queen she'],
                     'happiness': ['happy joy pleasure delight', 'sad misery dissatisfaction bore'],
-                    'life': ['alive active awake living', 'dead inactive asleep dying'],
+                    'intelligence': ['intelligent', 'stupid'],
+                    'freedom': ['freedom', 'oppression'],
                     'scary': ['scary afraid fear', 'relaxing unafraid comfort'], 
                     'sentiment': ['positive good better best', 'negative bad worse worst'], 
                     'success': ['successful', 'failed'],
                     'threat': ['danger war menace enemy', 'safety peace friend ally'],
+                    'war': ['war', 'peace'],
                     'wealth': ['wealth affluence rich asset', 'debt poverty poor liability'],
+                    //'life': ['alive active awake living', 'dead inactive asleep dying'],
+                    //'erotic': ['erotic sexy sensual', 'unerotic polite propper'],
                 };
                 projection_axis = getParameterByName('projection_axis');
                 select = document.getElementById('projection_axis')
@@ -269,15 +206,16 @@ function ema_simple(xs,ys,alpha,weights=null) {
         </li>
         <li>window size 
             <br>
-            <input type="range"  id="window_size_range" min="1" max="60" value="6" oninput="set_window_size(this.value)" />
+            <input type="range"  id="window_size_range" min="1" max="365" value="180" oninput="set_window_size(this.value)" />
             <br>
-            <input type="number" id="window_size_number" min="1" max="60" value="6" oninput="set_window_size(this.value)" />
+            <input type="number" id="window_size_number" min="1" max="365" value="180" step=30 oninput="set_window_size(this.value)" />
             <script>
             function set_window_size(window_size) {
                 document.getElementById('window_size_range').value = window_size;
                 document.getElementById('window_size_number').value = window_size;
-                trace3.y = sma([],sentiment_data[1],window_size,timeplot_data[1]);
-                Plotly.redraw('plotly');
+                trace3.y = moving_average([],sentiment_data_raw[1],window_size,sentiment_data_raw[2]);
+                Plotly.redraw('plotly',data);
+                //Plotly.react('plotly');
                 // FIXME:
                 // redraw() is slow because it redraws everything;
                 // we should only replot the changed traces
@@ -286,6 +224,13 @@ function ema_simple(xs,ys,alpha,weights=null) {
         </li>
     </ul>
 </aside>
+
+<div style='display:grid; grid-column:1; grid-row:1;'>
+    <h2 class=label>Counts</h2>
+</div>
+<div style='display:grid; grid-column:1; grid-row:2;'>
+    <h2 class=label>Projection</h2>
+</div>
 <div id=plotly></div>
 
 
@@ -305,19 +250,26 @@ function timeConverter(UNIX_timestamp){
   //return time;
 }
 
+var type = 'scattergl';
 var trace1 = {
   x: timeplot_data[0], //.map(timeConverter),
   y: timeplot_data[1],
   name: 'rate',
-  type: 'scatter',
+  /*
+  type: 'bar',
+  bargap: 0.0,
+  bargroupgap: 0.0,
+  */
   //hoverinfo: 'skip',
+  hovermode: 'closest',
+  type: type,
   line: {
     shape: 'hv',
     color: '#55f',
     width: 1,
   },
   marker: {
-    size: 1,
+    size: 3,
   },
 };
 
@@ -326,7 +278,7 @@ var trace2 = {
   y: sentiment_data[1],
   xaxis: 'x2',
   yaxis: 'y2',
-  type: 'scatter',
+  type: type,
   hoverinfo: 'skip',
   line: {
     shape: 'hv',
@@ -334,17 +286,28 @@ var trace2 = {
     width: 1,
   },
   mode: 'markers',
-  marker: {
-    size: 2,
-  }
-};
+}
+if (add_randoms) {
+  trace2.marker = {
+    size: 4*(1-sentiment_dots/10000),
+    color: '#ccf',
+  };
+  console.log('marker');
+  console.log(4 * (1-sentiment_dots/10000));
+}
+else {
+  trace2.marker = {
+    size: 3,
+    color: '#00f',
+  };
+}
 
 var trace3 = {
   x: sentiment_data[0], //.map(timeConverter),
-  y: sma([],sentiment_data[1],6,timeplot_data[1]),
+  y: moving_average([],sentiment_data_raw[1],180,sentiment_data_raw[2]),
   xaxis: 'x2',
   yaxis: 'y2',
-  type: 'scatter',
+  type: type,
   hoverinfo: 'skip',
   line: {
     shape: 'spline',
@@ -363,8 +326,9 @@ var layout = {
     grid: {rows: 2, columns: 1}, //, pattern: 'independent'},
     showlegend: false,
     //margin: {pad: 0},
+    //height: 500,
     margin:{
-        l:50,
+        l:60,
         r:0,
         t:0,
         b:0,
@@ -398,10 +362,11 @@ var layout = {
         type: 'date'
     },
     xaxis2: {
-      matches: 'x'
+      matches: 'x',
     },
     yaxis: {
       fixedrange: true,
+      rangemode: 'tozero',
       title: {
         text: 'mentions',
         font: {
@@ -413,6 +378,7 @@ var layout = {
     },
     yaxis2: {
       fixedrange: true,
+      rangemode: 'tozero',
       title: {
         text: 'projection',
         font: {
@@ -457,8 +423,7 @@ function(eventdata){
 </script>
 
 
-<h2>Document Results
-<aside>
+<aside style="grid-row:3">
     <h3>Document Options</h3>
 Order by
 <select name="orderby" id="orderby">
@@ -474,25 +439,53 @@ function orderby_onchange(e) {
 document.getElementById('orderby').addEventListener('change', orderby_onchange);
 </script>
 </aside>
-</h2>
 
-<div>
-    {%for result in search_results%}
-    <div class=result>
-        <div class=result_host>
-            <!--<img src=https://{{result.host}}/favicon.ico height=12px width=12px />-->
-            {{result.date_published}} --
-            <!-- {{result.accessed_at}} -- -->
-            <a href='/host/{{result.host}}'>{{result.host}}</a>
-            {{result.rank}}
-            &nbsp;
-            &nbsp;
-            &nbsp;
-            id={{result.id}}
-        </div>
-        <div class=result_title><a href="/metahtml?url={{result.url}}">{{result.title}}</a></div>
-        <div class=result_description>{{result.description}}</div>
-    </div>
-    {%endfor%}
+<div style='display:grid; grid-column:1; grid-row:3'>
+    <h2 class=label>Documents</h2>
 </div>
+<div style='display:grid; grid-column:2; grid-row:3'>
+
+{%for result in search_results%}
+<div class=result>
+    <div class=result_host>
+        <!--<img src=https://{{result.host}}/favicon.ico height=12px width=12px />-->
+        {{result.date_published}} --
+        <!-- {{result.accessed_at}} -- -->
+        <a href='/host/{{result.host}}'>{{result.host}}</a>
+        {{result.rank}}
+        &nbsp;
+        &nbsp;
+        &nbsp;
+        id={{result.id}}
+    </div>
+    <div class=result_title><a href="/metahtml?url={{result.url}}">{{result.title}}</a></div>
+    <div class=result_description>{{result.description}}</div>
+</div>
+{%endfor%}
+</div>
+
+<script>
+/*
+var jsondata = [];
+function load_projection() {
+    const xhttp = new XMLHttpRequest();
+    xhttp.onload = function() {
+        jsondata.projection = JSON.parse(this.responseText);
+        console.log(jsondata);
+    }
+    xhttp.open("GET", "/json/projection", true);
+    xhttp.send();
+}
+function load_count() {
+    const xhttp = new XMLHttpRequest();
+    xhttp.onload = function() {
+        jsondata.count = JSON.parse(this.responseText);
+        console.log(jsondata);
+    }
+    xhttp.open("GET", "/json/mention", true);
+    xhttp.send();
+}
+load_projection();
+*/
+</script>
 {% endblock %}

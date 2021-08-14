@@ -43,7 +43,6 @@ def metahtml():
         content = None
 
     meta = simplify_meta(row['jsonb'])
-    logging.info('meta='+str(meta))
 
     return render_template(
         'metahtml.html',

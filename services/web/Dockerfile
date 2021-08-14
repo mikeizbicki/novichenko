@@ -19,4 +19,4 @@ RUN chown -R app $APP_HOME \
  && chgrp -R app $APP_HOME
 
 # change to the app user
-USER app
+#USER app

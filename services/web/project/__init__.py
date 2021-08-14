@@ -18,6 +18,9 @@ import project.routes.host
 import project.routes.metahtml
 import project.routes.ngrams
 import project.routes.search
+import project.routes.json.wordcloud
+import project.routes.json.count
+import project.routes.json.projection
 
 
 @app.route('/')
@@ -26,6 +29,10 @@ def index():
         'index.html'
         )
 
+@app.route('/wordcloud')
+def wordcloud():
+    return render_template('wordcloud.html')
+    
 
 @app.route("/static/<path:filename>")
 def staticfiles(filename):
@@ -51,6 +58,7 @@ def before_request():
     g.start = time.time()
     g.connection = engine.connect()
     g.queries = []
+    g.debug_timers = []
 
 
 @app.after_request
