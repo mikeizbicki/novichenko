@@ -157,10 +157,10 @@ def get_term_counts(time_lo_def, time_hi_def, terms, lang, filter_hosts, granula
     bind_params['filter_hosts'] = filter_hosts
     bind_params['filter_host1'] = filter_hosts[0] if len(filter_hosts)>0 else None
     bind_params['lang'] = lang
-    return do_query('timeplot_term_counts', sql_term_counts, bind_params)
+    return do_query('count_term_counts', sql_term_counts, bind_params)
 
 
-def get_timeplot_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, normalize, terms_normalize, granularity, mentions_axis):
+def get_count_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, normalize, terms_normalize, granularity, mentions_axis):
     '''
     FIXME:
     This should obey the property that the term_counts with multiple terms is always <= term_counts with the individual terms,
@@ -250,8 +250,8 @@ def get_timeplot_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, norma
             select generate_series((select min(x) from results), (select max(x) from results), '1 {granularity}'::interval) as x
         ) as xs using (x)
         ''')
-        res = do_query('timeplot_total', sql_total, bind_params)
-        timeplot_data = {
+        res = do_query('count_total', sql_total, bind_params)
+        count_data = {
             'xs': [ row.x for row in res ],
             'totals': [ row.total for row in res ],
             'term_counts': [ row.total for row in res ],
@@ -262,7 +262,7 @@ def get_timeplot_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, norma
     # get results for a query with terms
     else:
         res = get_term_counts(time_lo_def, time_hi_def, terms, lang, filter_hosts, granularity, mentions_axis)
-        timeplot_data = {
+        count_data = {
             'xs': [ row.x for row in res ],
             'totals': [ row.total for row in res ],
             'term_counts': [ row.term_counts for row in res ],
@@ -270,9 +270,9 @@ def get_timeplot_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, norma
             'term_counts_hi': [ row.term_counts_hi for row in res ],
             }
 
-    normalize_values = timeplot_data['totals'] 
-    normalize_values_lo = timeplot_data['totals'] 
-    normalize_values_hi = timeplot_data['totals'] 
+    normalize_values = count_data['totals'] 
+    normalize_values_lo = count_data['totals'] 
+    normalize_values_hi = count_data['totals'] 
     if 'query' in normalize:
         res = get_term_counts(time_lo_def, time_hi_def, terms_normalize, lang, filter_hosts, granularity, mentions_axis)
         normalize_values = [ row.term_counts for row in res ]
@@ -280,10 +280,10 @@ def get_timeplot_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, norma
         normalize_values_hi = [ row.term_counts_hi for row in res ]
 
     if normalize == 'total' or 'query' in normalize:
-        timeplot_data['term_counts']    = [ a/(b+1e-10) for a,b in zip(timeplot_data['term_counts']   , normalize_values) ]
-        timeplot_data['term_counts_lo'] = [ a/(b+1e-10) for a,b in zip(timeplot_data['term_counts_lo'], normalize_values_lo) ]
-        timeplot_data['term_counts_hi'] = [ a/(b+1e-10) for a,b in zip(timeplot_data['term_counts_hi'], normalize_values_hi) ]
+        count_data['term_counts']    = [ a/(b+1e-10) for a,b in zip(count_data['term_counts']   , normalize_values) ]
+        count_data['term_counts_lo'] = [ a/(b+1e-10) for a,b in zip(count_data['term_counts_lo'], normalize_values_lo) ]
+        count_data['term_counts_hi'] = [ a/(b+1e-10) for a,b in zip(count_data['term_counts_hi'], normalize_values_hi) ]
 
-    return timeplot_data
+    return count_data
 
 

@@ -6,74 +6,77 @@
 {% block content %}
 
 <script>
-let timeplot_data = [
-    [{%for x in timeplot_data['xs']%} '{{x}}', {%endfor%}],
-    [{%for y in timeplot_data['term_counts']%} {{y}}, {%endfor%}],
-    [{%for y in timeplot_data['term_counts_lo']%} {{y}}, {%endfor%}],
-    [{%for y in timeplot_data['term_counts_hi']%} {{y}}, {%endfor%}],
-];
-let sentiment_data_raw = [
-    [{%for x in sentiment_data['xs']%} '{{x}}', {%endfor%}],
-    [{%for y in sentiment_data['sentiments']%} {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
-    [{%for y in sentiment_data['counts']%}     {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
-];
+var count_data;
+function load_count_data() {
+    count_data = [
+        [{%for x in count_data['xs']%} '{{x}}', {%endfor%}],
+        [{%for y in count_data['term_counts']%} {{y}}, {%endfor%}],
+        [{%for y in count_data['term_counts_lo']%} {{y}}, {%endfor%}],
+        [{%for y in count_data['term_counts_hi']%} {{y}}, {%endfor%}],
+    ];
+}
+load_count_data();
 
-// FIXME:
-// real slow!
-let randoms = [];
-let xs = [];
-let total_elements = sentiment_data_raw[2].reduce((a, b) => a + b, 0);
-let total_randoms = Math.min(10000.0,total_elements);
-let xs_index = 0;
-let randoms_at_index = 0;
-let variance = calc_variance(sentiment_data_raw[0]);
 
-let prime1 = 16769023;
-let prime2 = 1046527;
+var projection_data;
+var projection_data_raw;
+var projection_dots;
+function load_projection_data(add_randoms=true) {
+    projection_data_raw = [
+        [{%for x in projection_data['xs']%} '{{x}}', {%endfor%}],
+        [{%for y in projection_data['projections']%} {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
+        [{%for y in projection_data['counts']%}     {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
+    ];
 
-for (var i=0; i<total_randoms && xs_index <sentiment_data_raw[0].length; i++) {
-    randoms_at_index += 1
-    if (randoms_at_index > sentiment_data_raw[2][xs_index]/total_elements*total_randoms) {
-        xs_index += 1;
-        randoms_at_index = 0;
-        i -= 1;
+    if (add_randoms) {
+        let randoms = [];
+        let xs = [];
+        let total_elements = projection_data_raw[2].reduce((a, b) => a + b, 0);
+        let total_randoms = Math.min(10000.0,total_elements);
+        let xs_index = 0;
+        let randoms_at_index = 0;
+        let stddev = calc_stddev(projection_data_raw[1]);
+
+        for (var i=0; i<total_randoms && xs_index <projection_data_raw[0].length; i++) {
+            randoms_at_index += 1
+            if (randoms_at_index > projection_data_raw[2][xs_index]/total_elements*total_randoms) {
+                xs_index += 1;
+                randoms_at_index = 0;
+                i -= 1;
+            }
+            else {
+                if (projection_data_raw[1][xs_index] !== null) {
+                    xs.push(projection_data_raw[0][xs_index])
+                    // FIXME:
+                    // this uses the Box-Muller transform to convert two uniform random variables into two normal random variables;
+                    // the current implementation is 2x slower than it could be since we discard one of the normal random variables
+                    let r1 = Math.random();
+                    let r2 = Math.random();
+                    let random = stddev * Math.sqrt(-2*Math.log(r1))*Math.cos(2*Math.PI*r2);
+                    randoms.push(projection_data_raw[1][xs_index]+random);
+                }
+            }
+        }
+        projection_data = [
+            projection_data_raw[0].concat(xs),
+            projection_data_raw[1].concat(randoms),
+            ];
     }
     else {
-        if (sentiment_data_raw[1][xs_index] !== null) {
-            xs.push(sentiment_data_raw[0][xs_index])
-            // FIXME:
-            // this is real slow;
-            // the same technique can generate 2 random numbers;
-            // and we could use a faster random
-            let r1 = Math.random();
-            let r2 = Math.random();
-            //let random = (-5*Math.log(r1)**1)*Math.cos(2*Math.PI*r2);
-            let random = Math.sqrt(-2*Math.log(r1)**2)*Math.cos(2*Math.PI*r2);
-            randoms.push(sentiment_data_raw[1][xs_index]+random*variance);
+        projection_data = [
+            projection_data_raw[0],
+            projection_data_raw[1],
+            ];
+    }
+
+    projection_dots = 0;
+    for (let i=0; i<projection_data[1].length; i++) {
+        if (projection_data[1][i]) {
+            projection_dots += 1;
         }
     }
 }
-
-var add_randoms=true;
-if (add_randoms) {
-    var sentiment_data = [
-        sentiment_data_raw[0].concat(xs),
-        sentiment_data_raw[1].concat(randoms),
-        ];
-}
-else {
-    var sentiment_data = [
-        sentiment_data_raw[0],
-        sentiment_data_raw[1],
-        ];
-}
-
-var sentiment_dots = 0;
-for (let i=0; i<sentiment_data[1].length; i++) {
-    if (sentiment_data[1][i]) {
-        sentiment_dots += 1;
-    }
-}
+load_projection_data(true);
 </script>
 
 <script>
@@ -213,7 +216,7 @@ function ema_simple(xs,ys,alpha,weights=null) {
             function set_window_size(window_size) {
                 document.getElementById('window_size_range').value = window_size;
                 document.getElementById('window_size_number').value = window_size;
-                trace3.y = moving_average([],sentiment_data_raw[1],window_size,sentiment_data_raw[2]);
+                trace3.y = moving_average([],projection_data_raw[1],window_size,projection_data_raw[2]);
                 Plotly.redraw('plotly',data);
                 //Plotly.react('plotly');
                 // FIXME:
@@ -252,8 +255,8 @@ function timeConverter(UNIX_timestamp){
 
 var type = 'scattergl';
 var trace1 = {
-  x: timeplot_data[0], //.map(timeConverter),
-  y: timeplot_data[1],
+  x: count_data[0], //.map(timeConverter),
+  y: count_data[1],
   name: 'rate',
   /*
   type: 'bar',
@@ -274,8 +277,8 @@ var trace1 = {
 };
 
 var trace2 = {
-  x: sentiment_data[0], //.map(timeConverter),
-  y: sentiment_data[1],
+  x: projection_data[0], //.map(timeConverter),
+  y: projection_data[1],
   xaxis: 'x2',
   yaxis: 'y2',
   type: type,
@@ -285,26 +288,16 @@ var trace2 = {
     color: '#55f',
     width: 1,
   },
-  mode: 'markers',
-}
-if (add_randoms) {
-  trace2.marker = {
-    size: 4*(1-sentiment_dots/10000),
+  marker: {
+    size: 2+2*Math.max(0,1-projection_dots/10000)+2*Math.max(0,1-projection_dots/100),
     color: '#ccf',
-  };
-  console.log('marker');
-  console.log(4 * (1-sentiment_dots/10000));
-}
-else {
-  trace2.marker = {
-    size: 3,
-    color: '#00f',
-  };
+  },
+  mode: 'markers',
 }
 
 var trace3 = {
-  x: sentiment_data[0], //.map(timeConverter),
-  y: moving_average([],sentiment_data_raw[1],180,sentiment_data_raw[2]),
+  x: projection_data[0], //.map(timeConverter),
+  y: moving_average([],projection_data_raw[1],180,projection_data_raw[2]),
   xaxis: 'x2',
   yaxis: 'y2',
   type: type,
@@ -368,7 +361,7 @@ var layout = {
       fixedrange: true,
       rangemode: 'tozero',
       title: {
-        text: 'mentions',
+        text: 'count',
         font: {
           family: 'Courier New, monospace',
           size: 18,

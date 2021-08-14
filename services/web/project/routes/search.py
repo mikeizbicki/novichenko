@@ -7,7 +7,7 @@ import itertools
 import logging
 import datetime
 
-from project.routes.json.count import get_timeplot_data
+from project.routes.json.count import get_count_data
 from project.routes.json.projection import get_projection
 
 # preload resources
@@ -94,48 +94,12 @@ def search():
         neg_words = request.args.get('neg_words','happy joy pleasure delight').split()
 
     # access the database
-    with debug_timer('db: sentiment'):
-        sentiment_data = get_projection(time_lo, time_hi, terms, lang, filter_hosts, pos_words, neg_words, granularity)
+    with debug_timer('db: projection'):
+        projection_data = get_projection(time_lo, time_hi, terms, lang, filter_hosts, pos_words, neg_words, granularity)
     with debug_timer('db: timeplot'):
-        timeplot_data = get_timeplot_data(time_lo, time_hi, terms, lang, filter_hosts, normalize, terms_normalize, granularity, mentions_axis)
+        count_data = get_count_data(time_lo, time_hi, terms, lang, filter_hosts, normalize, terms_normalize, granularity, mentions_axis)
     with debug_timer('db: search'):
         search_results = get_search_results(tsquery, lang, filter_hosts, time_lo, time_hi, orderby, granularity)
-
-    # truncate timeseries values from the left
-    with debug_timer('truncate timeseries'):
-        if False and time_lo_args is None:
-
-            #  truncate timeplot_data
-            max_x = time_lo_def
-            for x,tc in zip(timeplot_data['xs'],timeplot_data['term_counts']):
-                if tc == 0:
-                    max_x = str(x)
-                else:
-                    break
-            max_index = 0
-            for i,x in enumerate(timeplot_data['xs']):
-                if str(x) < max_x:
-                    max_index = i
-            timeplot_data['xs'] = timeplot_data['xs'][max_index:]
-            timeplot_data['totals'] = timeplot_data['totals'][max_index:]
-            timeplot_data['term_counts'] = timeplot_data['term_counts'][max_index:]
-            timeplot_data['term_counts_lo'] = timeplot_data['term_counts_lo'][max_index:]
-            timeplot_data['term_counts_hi'] = timeplot_data['term_counts_hi'][max_index:]
-
-            # truncate sentiments
-            max_x = time_lo_def
-            for x,tc in zip(sentiment_data['xs'],sentiment_data['counts']):
-                if tc == 0 or tc is None:
-                    max_x = str(x)
-                else:
-                    break
-            max_index = 0
-            for i,x in enumerate(sentiment_data['xs']):
-                if str(x) < max_x:
-                    max_index = i
-            sentiment_data['xs'] = sentiment_data['xs'][max_index:]
-            sentiment_data['counts'] = sentiment_data['counts'][max_index:]
-            sentiment_data['sentiments'] = sentiment_data['sentiments'][max_index:]
 
     # return the generated HTML
     return render_template(
@@ -151,8 +115,8 @@ def search():
         granularity = granularity,
         mentions_axis = mentions_axis,
         search_results = search_results,
-        timeplot_data = timeplot_data,
-        sentiment_data = sentiment_data,
+        count_data = count_data,
+        projection_data = projection_data,
         terms_combinations_pretty = terms_combinations_pretty,
         )
     

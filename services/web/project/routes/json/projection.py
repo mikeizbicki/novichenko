@@ -29,7 +29,7 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
     FIXME:
     does not support OR or NOT clause
     '''
-    granularity = 'day'
+    #granularity = 'day'
 
     if len(filter_hosts) == 0:
         host = ''
@@ -56,7 +56,7 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
     select
         timestamp_published_{granularity} as x,
         "hostpath_surt" AS counts,
-        "avg(context)" <#> :projectionvector :: vector as sentiment
+        "avg(context)" <#> :projectionvector :: vector as projection
     from contextvector_{focus}{granularity}{host}
     where timestamp_published_{granularity} >= :time_lo
       and timestamp_published_{granularity} <  :time_hi
@@ -69,7 +69,7 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
         select
             x,
             coalesce(counts, 0) as counts,
-            sentiment
+            projection
         from (
             select generate_series(:time_lo, :time_hi, '1 {granularity}'::interval) as x
         ) as x
@@ -77,7 +77,7 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
             select
                 timestamp_published_{granularity} as x,
                 /*sum*/("hostpath_surt") AS counts,
-                /*avg*/("avg(context)" <#> :projectionvector :: vector) as sentiment
+                /*avg*/("avg(context)" <#> :projectionvector :: vector) as projection
             from contextvector_{focus}{granularity}lang{host}
             where timestamp_published_{granularity} >= :time_lo
               and timestamp_published_{granularity} <  :time_hi
@@ -85,7 +85,7 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
               {clause_focus}
               {clause_host}
             /*group by x*/
-        ) t_sentiment using(x)
+        ) t_projection using(x)
         --order by x asc
      )
      select *
@@ -97,22 +97,24 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
     with results as (
         select
             timestamp_published_{granularity} as x,
-            sum("hostpath_surt") AS counts,
-            avg("avg(context)" <#> :projectionvector :: vector) as sentiment
+            /*sum*/("hostpath_surt") AS counts,
+            /*avg*/("avg(context)" <#> :projectionvector :: vector) as projection
         from contextvector_{focus}{granularity}lang{host}
         where timestamp_published_{granularity} >= :time_lo
           and timestamp_published_{granularity} <  :time_hi
           and "contextvector.language" = :lang
           {clause_focus}
           {clause_host}
-        group by x
+        --group by x
         order by x asc
     )
     select *
     from results
+    /*
     right outer join ( 
         select generate_series((select min(x) from results), (select max(x) from results), '1 {granularity}'::interval) as x
     ) as xs using (x)
+    */
     ''')
 
     bind_params = {}
@@ -123,10 +125,10 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
     bind_params['filter_hosts'] = filter_hosts
     bind_params['filter_host1'] = filter_hosts[0] if len(filter_hosts)>0 else None
     bind_params['lang'] = lang
-    res = do_query('sentiments', sql, bind_params)
+    res = do_query('projections', sql, bind_params)
     data = {
         'xs': [ row.x for row in res ],
-        'sentiments': [ row.sentiment for row in res ],
+        'projections': [ row.projection for row in res ],
         'counts': [ row.counts for row in res ],
         }
     return data

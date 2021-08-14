@@ -975,6 +975,18 @@ CREATE INDEX ON metahtml_view USING rum(tsv_content RUM_TSVECTOR_ADDON_OPS, time
 
 SELECT * FROM pgrollup_rollups;
 
+-- FIXME: this is just for testing
+CREATE MATERIALIZED VIEW metahtml_view_count AS (
+    SELECT
+        count(1) AS count
+    FROM metahtml_view
+);
+CREATE MATERIALIZED VIEW metahtml_count AS (
+    SELECT
+        count(1) AS count
+    FROM metahtml
+);
+
 --------------------------------------------------------------------------------
 -- rollups for tracking debug info
 
@@ -1144,8 +1156,8 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlang TABLESPACE fastdata AS (
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         count(1) AS "count(1)",
-        count(hostpath_surt) AS hostpath_surt,
-        count(host_surt) AS host_surt
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(host_surt) AS host_surt
     FROM metahtml_view
     GROUP BY alltext,language
 );
@@ -1155,7 +1167,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlang_host TABLESPACE fastdata AS (
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
         count(1) AS "count(1)",
-        count(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         host_surt
     FROM metahtml_view
     GROUP BY alltext,language,host_surt
