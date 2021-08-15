@@ -110,11 +110,9 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
     )
     select *
     from results
-    /*
     right outer join ( 
         select generate_series((select min(x) from results), (select max(x) from results), '1 {granularity}'::interval) as x
     ) as xs using (x)
-    */
     ''')
 
     bind_params = {}

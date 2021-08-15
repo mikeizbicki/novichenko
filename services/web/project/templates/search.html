@@ -14,6 +14,7 @@ function load_count_data() {
         [{%for y in count_data['term_counts_lo']%} {{y}}, {%endfor%}],
         [{%for y in count_data['term_counts_hi']%} {{y}}, {%endfor%}],
     ];
+    console.log(count_data);
 }
 load_count_data();
 
@@ -258,12 +259,6 @@ var trace1 = {
   x: count_data[0], //.map(timeConverter),
   y: count_data[1],
   name: 'rate',
-  /*
-  type: 'bar',
-  bargap: 0.0,
-  bargroupgap: 0.0,
-  */
-  //hoverinfo: 'skip',
   hovermode: 'closest',
   type: type,
   line: {
@@ -275,6 +270,17 @@ var trace1 = {
     size: 3,
   },
 };
+
+var trace1b = Object.assign({}, trace1);
+trace1b.y = count_data[2];
+trace1b.line = {
+    shape: 'hv',
+    color: '#ccf',
+    width: 1,
+  };
+
+var trace1c = Object.assign({}, trace1b);
+trace1c.y = count_data[3];
 
 var trace2 = {
   x: projection_data[0], //.map(timeConverter),
@@ -313,7 +319,7 @@ var trace3 = {
 };
 
 
-var data = [trace1, trace2, trace3];
+var data = [trace1b, trace1c, trace1, trace2, trace3];
 
 var layout = {
     grid: {rows: 2, columns: 1}, //, pattern: 'independent'},

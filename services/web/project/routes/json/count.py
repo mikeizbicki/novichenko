@@ -250,13 +250,47 @@ def get_count_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, normaliz
             select generate_series((select min(x) from results), (select max(x) from results), '1 {granularity}'::interval) as x
         ) as xs using (x)
         ''')
+        sql_total = (f'''
+        with results as (
+            select
+                x,
+                term_counts[1]::INTEGER as term_counts,
+                term_counts[2]::INTEGER as term_counts_lo,
+                term_counts[3]::INTEGER as term_counts_hi
+            from (
+                select
+                    x,
+                    theta_sketch_get_estimate_and_bounds(coalesce("theta_sketch", theta_sketch_empty()), 3) as term_counts
+                from (
+                    select
+                        theta_sketch_union("theta_sketch_distinct(metahtml_view.hostpath_surt)") as theta_sketch,
+                        timestamp_published_{granularity} as x 
+                    from metahtml_rollup_lang{granularity}{host}_theta_raw
+                    where "metahtml_view.language" = :lang
+                      and timestamp_published_{granularity} >= :time_lo
+                      and timestamp_published_{granularity} <  :time_hi
+                      {clause_host}
+                    group by timestamp_published_{granularity}
+                ) t1
+            ) t2
+            order by x asc
+        )
+        select
+            coalesce(term_counts,0) as term_counts,
+            coalesce(term_counts_hi,0) as term_counts_hi,
+            coalesce(term_counts_lo,0) as term_counts_lo,
+            x
+        from results
+        right outer join ( 
+            select generate_series((select min(x) from results), (select max(x) from results), '1 {granularity}'::interval) as x
+        ) as xs using (x)
+        ''')
         res = do_query('count_total', sql_total, bind_params)
         count_data = {
             'xs': [ row.x for row in res ],
-            'totals': [ row.total for row in res ],
-            'term_counts': [ row.total for row in res ],
-            'term_counts_lo': [ row.total for row in res ],
-            'term_counts_hi': [ row.total for row in res ],
+            'term_counts': [ row.term_counts for row in res ],
+            'term_counts_lo': [ row.term_counts_lo for row in res ],
+            'term_counts_hi': [ row.term_counts_hi for row in res ],
             }
 
     # get results for a query with terms
@@ -264,15 +298,14 @@ def get_count_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, normaliz
         res = get_term_counts(time_lo_def, time_hi_def, terms, lang, filter_hosts, granularity, mentions_axis)
         count_data = {
             'xs': [ row.x for row in res ],
-            'totals': [ row.total for row in res ],
             'term_counts': [ row.term_counts for row in res ],
             'term_counts_lo': [ row.term_counts_lo for row in res ],
             'term_counts_hi': [ row.term_counts_hi for row in res ],
             }
 
-    normalize_values = count_data['totals'] 
-    normalize_values_lo = count_data['totals'] 
-    normalize_values_hi = count_data['totals'] 
+    normalize_values = count_data['term_counts'] 
+    normalize_values_lo = count_data['term_counts_lo'] 
+    normalize_values_hi = count_data['term_counts_hi'] 
     if 'query' in normalize:
         res = get_term_counts(time_lo_def, time_hi_def, terms_normalize, lang, filter_hosts, granularity, mentions_axis)
         normalize_values = [ row.term_counts for row in res ]
