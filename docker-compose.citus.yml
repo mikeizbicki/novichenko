@@ -1,0 +1,14 @@
+services:
+  citus_worker:
+    build: ./services/pg
+    command: postgres -c config_file=/etc/postgresql.conf
+    shm_size: 8gb
+    deploy:
+      replicas: 2
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    env_file:
+      - ./.env.prod
+    depends_on: [pg]
+
+

@@ -27,7 +27,7 @@ import metahtml
 import metahtml.adblock
 
 from urllib.parse import urlparse
-from collections import Counter
+from collections import Counter,defaultdict
 
 ################################################################################
 # surt helper functions
@@ -310,6 +310,7 @@ def bulk_insert(connection, id_source, batch):
     # compute the entries for the metahtml_view table
     batch_view = []
     batch_contextvector = []
+    batch_wordcontext = []
     for item in batch:
         meta = json.loads(item['jsonb'])
         url = item['url']
@@ -321,6 +322,7 @@ def bulk_insert(connection, id_source, batch):
             title = meta['title']['best']['value']
             description = meta['description']['best']['value']
             content = meta['content']['best']['value']['html']
+            links = [ item['href'] for item in meta['links.all']['best']['value'] ]
             meta_has_info = True
         # whenever the url does not correspond to an article, the code above throws an exception;
         # in this case, we won't be adding to the batch_view or batch_contextvector variables
@@ -339,8 +341,22 @@ def bulk_insert(connection, id_source, batch):
                 'content': content,
                 'tsv_title': tsv_title,
                 'tsv_content': tsv_content,
+                'links': links,
                 })
-            embedding = chajda.embeddings.get_embedding(lang=lang_iso, max_n=400000, max_d=None, storage_dir='./embeddings')
+            embedding = chajda.embeddings.get_embedding(lang=lang_iso, max_n=100000, max_d=25, storage_dir='./embeddings')
+            #wordcontexts = chajda.tsvector.tsvector_to_wordcontext(tsv_content, n=2, windowsize=10)
+            #wordcontexts_mod = defaultdict(lambda: [])
+            #for focus,context,count in wordcontexts:
+            #    wordcontexts_mod[focus] += [context]*count
+            #for word, context in wordcontexts_mod.items():
+            #    batch_wordcontext.append({
+            #        'host_surt': url_host_surt(url),
+            #        'hostpath_surt': url_hostpath_surt(url),
+            #        'timestamp_published': timestamp_published,
+            #        'context': context,
+            #        'focus': focus,
+            #        'language': lang_iso,
+            #        })
             contextvectors = chajda.tsvector.tsvector_to_contextvectors(embedding, tsv_content, n=2, normalize=False)
             for focus,[context,count] in contextvectors.items():
                 batch_contextvector.append({
@@ -348,7 +364,7 @@ def bulk_insert(connection, id_source, batch):
                     'hostpath_surt': url_hostpath_surt(url),
                     'timestamp_published': timestamp_published,
                     'context': context / math.sqrt(count),
-                    'count': 1, # FIXME: this is the number of urls not the number of words; should we fix that?
+                    'count': count, # FIXME: this is the number of urls not the number of words; should we fix that?
                     'focus': focus,
                     'language': lang_iso,
                     })
@@ -376,7 +392,7 @@ def bulk_insert(connection, id_source, batch):
                 cursor.execute(sql,{'id_source':id_source, 'urls_inserted':urls_inserted+len(batch)})
 
                 # log our update
-                logging.info(f'bulk_insert: id_source={id_source}, urls_inserted={urls_inserted}, len(batch)={len(batch)}, len(batch_view)={len(batch_view)}, len(batch_contextvector)={len(batch_contextvector)}')
+                logging.info(f'bulk_insert: id_source={id_source}, urls_inserted={urls_inserted}, len(batch)={len(batch)}, len(batch_view)={len(batch_view)}, len(batch_contextvector)={len(batch_contextvector)}') #, len(batch_wordcontext)={len(batch_wordcontext)}')
 
                 def copy_from_batch(tablename, batch):
                     if len(batch) > 0:
@@ -396,38 +412,8 @@ def bulk_insert(connection, id_source, batch):
                 # insert into metahtml
                 copy_from_batch('metahtml', batch)
                 copy_from_batch('metahtml_view', batch_view)
+                #copy_from_batch('wordcontext', batch_wordcontext)
                 copy_from_batch('contextvector', batch_contextvector)
-                """
-                with cursor.copy('COPY metahtml(accessed_at,id_source,url,jsonb) FROM STDIN') as copy:
-                    for record in batch:
-                        copy.write_row([record['accessed_at'],record['id_source'],record['url'],record['jsonb']])
-
-                # insert into metahtml_view
-                if len(batch_view) > 0:
-                    sql = sqlalchemy.sql.text(f'''
-                        INSERT INTO metahtml_view (timestamp_published, host_surt, hostpath_surt, language, title, description, content, tsv_title, tsv_content) VALUES'''+
-                        ','.join([f'(:timestamp_published{i}, url_host_surt(:url{i}), url_hostpath_surt(:url{i}), language_iso639(:language{i}), :title{i}, :description{i}, :content{i}, :tsv_title{i}, :tsv_content{i})' for i in range(len(batch_view))])
-                        + 'ON CONFLICT DO NOTHING'
-                        )
-                    res = connection.execute(sql,{
-                        key+str(i) : d[key]
-                        for i,d in enumerate(batch_view)
-                        for key in d.keys()
-                        })
-
-                # insert into contextvector
-                if len(batch_contextvector) > 0:
-                    sql = sqlalchemy.sql.text(f'''
-                        INSERT INTO contextvector (context, timestamp_published, count, host_surt, hostpath_surt, language, focus) VALUES'''+
-                        ','.join([f'(:context{i}, :timestamp_published{i}, 1, url_host_surt(:url{i}), url_hostpath_surt(:url{i}), language_iso639(:language{i}), :focus{i})' for i in range(len(batch_contextvector))])
-                        + 'ON CONFLICT DO NOTHING'
-                        )
-                    res = connection.execute(sql,{
-                        key+str(i) : d[key]
-                        for i,d in enumerate(batch_contextvector)
-                        for key in d.keys()
-                        })
-                """
 
                 # if we've made it to this point in the code,
                 # the insert was successful,

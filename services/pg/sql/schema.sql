@@ -1,6 +1,3 @@
--- tablespaces cannot be created within a transaction
-CREATE TABLESPACE fastdata LOCATION '/fastdata';
-
 -- if there is an error in the file, then we should abort;
 -- the entire file is contained within a transaction, so either everything will be defined or nothing
 \set ON_ERROR_STOP on
@@ -225,12 +222,25 @@ CREATE EXTENSION hll;
 CREATE EXTENSION tdigest;
 CREATE EXTENSION datasketches;
 CREATE EXTENSION topn;
+
+-- configure pg_cron
 CREATE EXTENSION pg_cron;
+CREATE VIEW cron_recent_status AS (
+    with alljobs as (
+        select command,start_time,end_time,status,split_part(return_message, E'\n', 1) as return_message from cron.job_run_details
+    )
+    select alljobs.* from (select command,max(start_time) last_success from alljobs where status='succeeded' group by command) t
+    right outer join alljobs using (command)
+    where last_success < start_time order by command,start_time
+);
+CREATE VIEW cron_running AS (
+    select command,start_time,now()-start_time as duration from cron.job_run_details where status='running' order by command
+);
 
 -- configure pgrollup for minimal overhead rollup tables
 CREATE EXTENSION pgrollup;
 UPDATE pgrollup_settings SET value='cron' WHERE name='default_mode';
-UPDATE pgrollup_settings SET value='10000' WHERE name='cron_max_rollup_size';
+UPDATE pgrollup_settings SET value='10000' WHERE name='cron_block_size';
 CREATE EVENT TRIGGER pgrollup_from_matview_trigger ON ddl_command_end WHEN TAG IN ('CREATE MATERIALIZED VIEW') EXECUTE PROCEDURE pgrollup_from_matview_event();
 
 -- extensions for improved debugging
@@ -400,11 +410,16 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION host_simplify(host TEXT)
 RETURNS TEXT LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE
 AS $$
+DECLARE
+    host_no_dot TEXT = COALESCE(
+        SUBSTRING(host, '^(.*)\.$'),
+        host
+    );
 BEGIN
     RETURN COALESCE(
-        SUBSTRING(host, '^www\d*\.(.*)'),
-        SUBSTRING(host, '^m\.(.*)'),
-        host
+        SUBSTRING(host_no_dot, '^www\d*\.(.*)'),
+        SUBSTRING(host_no_dot, '^m\.(.*)'),
+        host_no_dot
     );
 END 
 $$;
@@ -412,15 +427,21 @@ $$;
 do $$
 BEGIN
     assert( host_simplify('cnn.com') = 'cnn.com');
+    assert( host_simplify('cnn.com.') = 'cnn.com');
     assert( host_simplify('www.cnn.com') = 'cnn.com');
     assert( host_simplify('www2.cnn.com') = 'cnn.com');
     assert( host_simplify('www5.cnn.com') = 'cnn.com');
     assert( host_simplify('www577.cnn.com') = 'cnn.com');
+    assert( host_simplify('www577.cnn.com.') = 'cnn.com');
     assert( host_simplify('bbc.co.uk') = 'bbc.co.uk');
+    assert( host_simplify('bbc.co.uk.') = 'bbc.co.uk');
     assert( host_simplify('www.bbc.co.uk') = 'bbc.co.uk');
+    assert( host_simplify('www.bbc.co.uk.') = 'bbc.co.uk');
     assert( host_simplify('en.wikipedia.org') = 'en.wikipedia.org');
     assert( host_simplify('m.wikipedia.org') = 'wikipedia.org');
+    assert( host_simplify('m.wikipedia.org.') = 'wikipedia.org');
     assert( host_simplify('naenara.com.kp') = 'naenara.com.kp');
+    assert( host_simplify('naenara.com.kp.') = 'naenara.com.kp');
 END;
 $$ LANGUAGE plpgsql;
 
@@ -578,6 +599,7 @@ BEGIN
     assert( url_host_surt('https://example.com/path/to/#test') = 'com,example)');
     assert( url_host_surt('https://example.com/path/to/?param=12') = 'com,example)');
     assert( url_host_surt('https://Example.com/Path/To/?Param=12') = 'com,example)');
+    assert( url_host_surt('https://Example.com./Path/To/?Param=12') = 'com,example)');
 END;
 $$ LANGUAGE plpgsql;
 
@@ -965,6 +987,7 @@ CREATE TABLE metahtml_view (
     content TEXT,
     tsv_title tsvector NOT NULL,
     tsv_content tsvector NOT NULL,
+    links TEXT[],
     PRIMARY KEY (host_surt, id)
 );
 CREATE UNIQUE INDEX ON metahtml_view (host_surt, hostpath_surt);
@@ -972,6 +995,27 @@ CREATE UNIQUE INDEX ON metahtml_view (host_surt, hostpath_surt);
 CREATE INDEX ON metahtml_view USING rum(tsv_content);
 CREATE INDEX ON metahtml_view USING rum(tsv_content RUM_TSVECTOR_ADDON_OPS, timestamp_published)
   WITH (ATTACH='timestamp_published', TO='tsv_content');
+
+-- FIXME: this view should be materialized, but pgrollup needs to support outer joins
+CREATE VIEW metahtml_view_conversion AS (
+    SELECT *, round(coalesce(count_view,0)/count_metahtml::numeric,4) as conversion_rate 
+    FROM (
+        SELECT
+            url_host_surt(url) as host_surt,
+            count(*) as count_metahtml
+        FROM metahtml
+        GROUP BY host_surt
+    )t1 
+    FULL OUTER JOIN (
+        SELECT
+            host_surt,
+            count(*) as count_view
+        FROM metahtml_view
+        GROUP BY host_surt
+    )t2
+    USING (host_surt)
+    ORDER BY host_surt
+);
 
 SELECT * FROM pgrollup_rollups;
 
@@ -1040,6 +1084,58 @@ CREATE MATERIALIZED VIEW metahtml_linksall_host AS (
         hll_count(url_hostpath_surt(url)) AS src_hostpath
     FROM metahtml
     GROUP BY src,dest
+);
+
+CREATE VIEW metahtml_linksall_summary AS (
+    WITH results AS (
+        SELECT
+            src,
+            dest,
+            src_hostpath
+        FROM metahtml_linksall_host
+        WHERE dest IN (SELECT DISTINCT src FROM metahtml_linksall_host)
+    )
+    SELECT *,round((src_hostpath/src_total)::numeric,4) as fraction
+    FROM results
+    JOIN (
+        SELECT src,src_hostpath as src_total
+        FROM results
+        WHERE src=dest
+    )t USING (src)
+    ORDER BY src,dest
+);
+
+SELECT dest,count(*) as src_host,sum(src_hostpath) as src_hostpath from metahtml_linksall_host group by dest order by src_host desc;
+
+-- FIXME:
+-- we should index this by words as well,
+-- but we need the unnest to act as a cross product instead of in parallel
+CREATE MATERIALIZED VIEW linksall_host AS (
+    SELECT
+        host_surt as src,
+        url_host_surt(unnest(links)) AS dest,
+        hll_count(hostpath_surt) AS src_hostpath
+    FROM metahtml_view
+    GROUP BY src,dest
+);
+
+CREATE VIEW linksall_summary AS (
+    WITH results AS (
+        SELECT
+            src,
+            dest,
+            src_hostpath
+        FROM linksall_host
+        WHERE dest IN (SELECT DISTINCT src FROM linksall_host)
+    )
+    SELECT *,round((src_hostpath/src_total)::numeric,4) as fraction
+    FROM results
+    JOIN (
+        SELECT src,src_hostpath as src_total
+        FROM results
+        WHERE src=dest
+    )t USING (src)
+    ORDER BY src,dest
 );
 
 /* FIXME: materialize this
@@ -1151,7 +1247,7 @@ CREATE VIEW hostnames_to_check_untested AS (
 -- wordcount
 --------------------------------------------------------------------------------
 
-CREATE MATERIALIZED VIEW metahtml_rollup_textlang TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_textlang AS (
     SELECT
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
@@ -1162,7 +1258,7 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlang TABLESPACE fastdata AS (
     GROUP BY alltext,language
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_textlang_host TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_textlang_host AS (
     SELECT
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
@@ -1175,200 +1271,200 @@ CREATE MATERIALIZED VIEW metahtml_rollup_textlang_host TABLESPACE fastdata AS (
 
 --------------------
 
-CREATE MATERIALIZED VIEW metahtml_rollup_year_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_year_theta AS (
     SELECT
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM metahtml_view
     GROUP BY timestamp_published_year
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_year_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_year_host_theta AS (
     SELECT
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM metahtml_view
     GROUP BY timestamp_published_year,host_surt
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langyear_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langyear_theta AS (
     SELECT
         language, 
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM metahtml_view
     GROUP BY language,timestamp_published_year
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langyear_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langyear_host_theta AS (
     SELECT
         language, 
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM metahtml_view
     GROUP BY language,timestamp_published_year,host_surt
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangyear_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangyear_theta AS (
     SELECT
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_year
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangyear_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangyear_host_theta AS (
     SELECT
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_year,host_surt
 );
 
 --------------------
 
-CREATE MATERIALIZED VIEW metahtml_rollup_month_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_month_theta AS (
     SELECT
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM metahtml_view
     GROUP BY timestamp_published_month
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_month_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_month_host_theta AS (
     SELECT
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM metahtml_view
     GROUP BY timestamp_published_month,host_surt
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_theta AS (
     SELECT
         language, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM metahtml_view
     GROUP BY language,timestamp_published_month
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langmonth_host_theta AS (
     SELECT
         language, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM metahtml_view
     GROUP BY language,timestamp_published_month,host_surt
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_theta AS (
     SELECT
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_month
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangmonth_host_theta AS (
     SELECT
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_month,host_surt
 );
 
 ----------
 
-CREATE MATERIALIZED VIEW metahtml_rollup_day_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_day_theta AS (
     SELECT
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM metahtml_view
     GROUP BY timestamp_published_day
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_day_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_day_host_theta AS (
     SELECT
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM metahtml_view
     GROUP BY timestamp_published_day,host_surt
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langday_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langday_theta AS (
     SELECT
         language, 
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM metahtml_view
     GROUP BY language,timestamp_published_day
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_langday_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_langday_host_theta AS (
     SELECT
         language, 
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM metahtml_view
     GROUP BY language,timestamp_published_day,host_surt
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_theta AS (
     SELECT
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        theta_sketch_distinct(host_surt) AS host_surt
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_day
 );
 
-CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_host_theta TABLESPACE fastdata AS (
+CREATE MATERIALIZED VIEW metahtml_rollup_textlangday_host_theta AS (
     SELECT
         unnest(tsvector_to_ngrams(tsv_title || tsv_content)) AS alltext,
         language, 
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
         count(1) AS "count(1)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
-        host_surt
+        host_surt,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM metahtml_view
     GROUP BY alltext,language,timestamp_published_day,host_surt
 );
@@ -1392,14 +1488,73 @@ CREATE TABLE contextwords (
 */
 
 --------------------------------------------------------------------------------
+-- wordcontext
+--------------------------------------------------------------------------------
+
+CREATE TABLE wordcontext (
+    id BIGSERIAL NOT NULL,
+    timestamp_published TIMESTAMPTZ NOT NULL,
+    host_surt TEXT,
+    hostpath_surt TEXT,
+    focus TEXT,
+    context TEXT[],
+	language TEXT,
+    PRIMARY KEY (host_surt, id, hostpath_surt, focus)
+);
+
+/*
+CREATE MATERIALIZED VIEW wordcontext_focusmonthlang AS (
+    SELECT 
+        unnest(context) AS context,
+        count(1) AS "count(1)",
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        theta_sketch_distinct(host_surt) AS host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        focus,
+        language
+    FROM wordcontext
+    GROUP BY timestamp_published_month,focus,context,language
+);
+
+CREATE MATERIALIZED VIEW wordcontext_focusmonthlang_host AS (
+    SELECT 
+        unnest(context) AS context,
+        count(1) AS "count(1)",
+        theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
+        host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        focus,
+        language
+    FROM wordcontext
+    GROUP BY timestamp_published_month,host_surt,focus,context,language
+);
+*/
+
+/*
+CREATE MATERIALIZED VIEW wordcontext AS (
+    SELECT
+        (tsvector_to_wordcontext(tsv_title || tsv_content)).focus as focus,
+        (tsvector_to_wordcontext(tsv_title || tsv_content)).context as context,
+        --sum((tsvector_to_wordcontext(tsv_title || tsv_content)).count) as count,
+        hostpath_surt,
+        host_surt,
+        timestamp_published,
+        language
+        --count(1) as count
+    FROM (select * from metahtml_view limit 1)t
+    --GROUP BY 1,2,3,4,5,6
+);
+*/
+
+--------------------------------------------------------------------------------
 -- contextvector
 --------------------------------------------------------------------------------
 
-UPDATE pgrollup_settings SET value='1000000' WHERE name='cron_max_rollup_size';
+UPDATE pgrollup_settings SET value='1000000' WHERE name='cron_block_size';
 
 CREATE TABLE contextvector (
     id BIGSERIAL NOT NULL,
-    context vector(300),
+    context vector(25),
     timestamp_published TIMESTAMPTZ NOT NULL,
     count bigint,  -- FIXME: we could use smallint here and save some space, we just need to cast the rollups to int/bigint to avoid overflow
     host_surt TEXT,
@@ -1416,9 +1571,9 @@ CREATE MATERIALIZED VIEW contextvector_focuslang_host AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        host_surt,
         focus,
-        language
+        language,
+        host_surt
     FROM contextvector
     GROUP BY host_surt,focus,language
 );
@@ -1431,8 +1586,8 @@ CREATE MATERIALIZED VIEW contextvector_yearlang AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
-        language
+        language,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM contextvector
     GROUP BY timestamp_published_year,language
 );
@@ -1454,9 +1609,9 @@ CREATE MATERIALIZED VIEW contextvector_yearlang_host AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
+        language,
         host_surt,
-        language
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM contextvector
     GROUP BY timestamp_published_year,host_surt,language
 );
@@ -1467,8 +1622,8 @@ CREATE MATERIALIZED VIEW contextvector_year_host AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
-        host_surt
+        host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM contextvector
     GROUP BY timestamp_published_year,host_surt
 );
@@ -1479,9 +1634,9 @@ CREATE MATERIALIZED VIEW contextvector_focusyearlang AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
         focus,
-        language
+        language,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM contextvector
     GROUP BY timestamp_published_year,focus,language
 );
@@ -1492,10 +1647,10 @@ CREATE MATERIALIZED VIEW contextvector_focusyearlang_host AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        host_surt,
-        date_trunc('year',timestamp_published) AS timestamp_published_year,
         focus,
-        language
+        language,
+        host_surt,
+        date_trunc('year',timestamp_published) AS timestamp_published_year
     FROM contextvector
     GROUP BY timestamp_published_year,host_surt,focus,language
 );
@@ -1508,8 +1663,8 @@ CREATE MATERIALIZED VIEW contextvector_monthlang AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        language
+        language,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM contextvector
     GROUP BY timestamp_published_month,language
 );
@@ -1531,9 +1686,9 @@ CREATE MATERIALIZED VIEW contextvector_monthlang_host AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
+        language,
         host_surt,
-        language
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM contextvector
     GROUP BY timestamp_published_month,host_surt,language
 );
@@ -1544,8 +1699,8 @@ CREATE MATERIALIZED VIEW contextvector_month_host AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        host_surt
+        host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM contextvector
     GROUP BY timestamp_published_month,host_surt
 );
@@ -1556,9 +1711,9 @@ CREATE MATERIALIZED VIEW contextvector_focusmonthlang AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
         focus,
-        language
+        language,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM contextvector
     GROUP BY timestamp_published_month,focus,language
 );
@@ -1569,27 +1724,30 @@ CREATE MATERIALIZED VIEW contextvector_focusmonthlang_host AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        host_surt,
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
         focus,
-        language
+        language,
+        host_surt,
+        date_trunc('month',timestamp_published) AS timestamp_published_month
     FROM contextvector
     GROUP BY timestamp_published_month,host_surt,focus,language
 );
 
 -----
 
+DROP EVENT TRIGGER pgrollup_from_matview_trigger;
 CREATE MATERIALIZED VIEW contextvector_daylang AS (
     SELECT 
         vector_sum(context) as "sum(context)",
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
-        language
+        language,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM contextvector
     GROUP BY timestamp_published_day,language
 );
+SELECT pgrollup_from_matview('contextvector_daylang', partition_method=>'range', partition_keys=>ARRAY['timestamp_published_day']);
+SELECT partman.create_parent('public.contextvector_daylang_raw', 'timestamp_published_day', 'native', 'daily');
 
 CREATE MATERIALIZED VIEW contextvector_day AS (
     SELECT 
@@ -1601,31 +1759,37 @@ CREATE MATERIALIZED VIEW contextvector_day AS (
     FROM contextvector
     GROUP BY timestamp_published_day
 );
+SELECT pgrollup_from_matview('contextvector_day', partition_method=>'range', partition_keys=>ARRAY['timestamp_published_day']);
+SELECT partman.create_parent('public.contextvector_day_raw', 'timestamp_published_day', 'native', 'daily');
 
 CREATE MATERIALIZED VIEW contextvector_daylang_host AS (
     SELECT 
-        vector_sum(context) as "sum(context)", -- FIXME: storing lots of redundant information here
+        vector_sum(context) as "sum(context)",
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
+        language,
         host_surt,
-        language
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM contextvector
     GROUP BY timestamp_published_day,host_surt,language
 );
+SELECT pgrollup_from_matview('contextvector_daylang_host', partition_method=>'range', partition_keys=>ARRAY['timestamp_published_day']);
+SELECT partman.create_parent('public.contextvector_daylang_host_raw', 'timestamp_published_day', 'native', 'daily');
 
 CREATE MATERIALIZED VIEW contextvector_day_host AS (
     SELECT 
-        vector_sum(context) as "sum(context)", -- FIXME: storing lots of redundant information here
+        vector_sum(context) as "sum(context)",
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
-        host_surt
+        host_surt,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM contextvector
     GROUP BY timestamp_published_day,host_surt
 );
+SELECT pgrollup_from_matview('contextvector_day_host', partition_method=>'range', partition_keys=>ARRAY['timestamp_published_day']);
+SELECT partman.create_parent('public.contextvector_day_host_raw', 'timestamp_published_day', 'native', 'daily');
 
 CREATE MATERIALIZED VIEW contextvector_focusdaylang AS (
     SELECT 
@@ -1633,12 +1797,14 @@ CREATE MATERIALIZED VIEW contextvector_focusdaylang AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
         focus,
-        language
+        language,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM contextvector
     GROUP BY timestamp_published_day,focus,language
 );
+SELECT pgrollup_from_matview('contextvector_focusdaylang', partition_method=>'range', partition_keys=>ARRAY['timestamp_published_day']);
+SELECT partman.create_parent('public.contextvector_focusdaylang_raw', 'timestamp_published_day', 'native', 'daily');
 
 CREATE MATERIALIZED VIEW contextvector_focusdaylang_host AS (
     SELECT 
@@ -1646,83 +1812,47 @@ CREATE MATERIALIZED VIEW contextvector_focusdaylang_host AS (
         sum(count) as "sum(count)",
         theta_sketch_distinct(hostpath_surt) AS hostpath_surt,
         vector_sum(context)/sum(count) as "avg(context)",
-        host_surt,
-        date_trunc('day',timestamp_published) AS timestamp_published_day,
         focus,
-        language
+        language,
+        host_surt,
+        date_trunc('day',timestamp_published) AS timestamp_published_day
     FROM contextvector
     GROUP BY timestamp_published_day,host_surt,focus,language
 );
+SELECT pgrollup_from_matview('contextvector_focusdaylang_host', partition_method=>'range', partition_keys=>ARRAY['timestamp_published_day']);
+SELECT partman.create_parent('public.contextvector_focusdaylang_host_raw', 'timestamp_published_day', 'native', 'daily');
 
-----
+--------------------------------------------------------------------------------
+-- update configuration options
+--------------------------------------------------------------------------------
+UPDATE partman.part_config SET infinite_time_partitions = true;
+UPDATE pgrollup_settings SET value='10000' WHERE name='cron_block_size';
+CREATE EVENT TRIGGER pgrollup_from_matview_trigger ON ddl_command_end WHEN TAG IN ('CREATE MATERIALIZED VIEW') EXECUTE PROCEDURE pgrollup_from_matview_event();
 
-UPDATE pgrollup_settings SET value='1000' WHERE name='cron_max_rollup_size';
-CREATE MATERIALIZED VIEW wordcontext TABLESPACE fastdata AS (
-    SELECT
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).focus as focus,
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).context as context,
-        --sum((tsvector_to_wordcontext(tsv_title || tsv_content)).count) as count,
-        count(1) as count,
-        language
-    FROM metahtml_view
-    GROUP BY focus,context,language
-);
---CREATE INDEX ON wordcontext_raw ("metahtml_view.language", focus, context, "count(1)" );
+--------------------------------------------------------------------------------
+-- distribute tables with citus
+--------------------------------------------------------------------------------
+SELECT create_distributed_table('metahtml_view', 'host_surt');
+SELECT create_distributed_table('metahtml_rollup_year_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_textlang_host_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_langyear_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_textlangyear_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_month_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_langmonth_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_textlangmonth_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_day_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_langday_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_textlangday_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
 
-/*
-CREATE MATERIALIZED VIEW wordcontext_month TABLESPACE fastdata AS (
-    SELECT
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).focus as focus,
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).context as context,
-        --sum((tsvector_to_wordcontext(tsv_title || tsv_content)).count) as count,
-        count(1) as count,
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        language
-    FROM metahtml_view
-    GROUP BY focus,context,language,timestamp_published_month
-);
-CREATE INDEX ON wordcontext_month_raw ("metahtml_view.language", timestamp_published_month, focus, context, "count(1)");
-
-CREATE MATERIALIZED VIEW wordcontext_hostpath TABLESPACE fastdata AS (
-    SELECT
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).focus as focus,
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).context as context,
-        --sum((tsvector_to_wordcontext(tsv_title || tsv_content)).count) as count,
-        count(1) as count,
-        language, 
-        hostpath_surt
-    FROM metahtml_view
-    GROUP BY focus,context,language,hostpath_surt
-);
-CREATE INDEX ON wordcontext_hostpath_raw ("metahtml_view.hostpath_surt", "metahtml_view.language", focus, context, "count(1)");
-
-CREATE MATERIALIZED VIEW wordcontext_host TABLESPACE fastdata AS (
-    SELECT
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).focus as focus,
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).context as context,
-        --sum((tsvector_to_wordcontext(tsv_title || tsv_content)).count) as count,
-        count(1) as count,
-        language, 
-        host_surt
-    FROM metahtml_view
-    GROUP BY focus,context,language,host_surt
-);
-CREATE INDEX ON wordcontext_host_raw ("metahtml_view.language", "metahtml_view.host_surt", focus, context, "count(1)");
-
-CREATE MATERIALIZED VIEW wordcontext_hostmonth TABLESPACE fastdata AS (
-    SELECT
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).focus as focus,
-        (tsvector_to_wordcontext(tsv_title || tsv_content)).context as context,
-        --sum((tsvector_to_wordcontext(tsv_title || tsv_content)).count) as count,
-        count(1) as count,
-        language, 
-        date_trunc('month',timestamp_published) AS timestamp_published_month,
-        host_surt
-    FROM metahtml_view
-    GROUP BY focus,context,language,host_surt,timestamp_published_month
-);
-CREATE INDEX ON wordcontext_hostmonth_raw ("metahtml_view.language", "metahtml_view.host_surt", timestamp_published_month, focus, context, "count(1)");
-*/
-
-
+SELECT create_distributed_table('contextvector', 'host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('contextvector_focuslang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_focusdaylang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_daylang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_day_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_focusmonthlang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_monthlang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_month_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_focusyearlang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_yearlang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_year_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
 COMMIT;

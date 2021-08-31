@@ -16,32 +16,15 @@ services:
   pg:
     build: ./services/pg
     command: postgres -c config_file=/etc/postgresql.conf
-    shm_size: 4gb
+    shm_size: 16gb
     labels: ['com.citusdata.role=Master']
-    #volumes:
-        # - novichenko_fastdata:/fastdata
-        # - novichenko_data:/var/lib/postgresql/data/
+    volumes:
+      - /home/usertest/pg_volume:/var/lib/postgresql/data/
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
     env_file:
       - ./.env.prod
-
-  citus_worker:
-    build: ./services/pg
-    command: postgres -c config_file=/etc/postgresql.conf
-    shm_size: 4gb
-    deploy:
-      replicas: 2
-    environment:
-      - POSTGRES_HOST_AUTH_METHOD=trust
-    env_file:
-      - ./.env.prod
-    depends_on: [pg]
 
 networks:
   default:
     name: novichenko
-
-#volumes:
-#  novichenko_data:
-#  novichenko_fastdata:

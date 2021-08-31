@@ -17,6 +17,7 @@ SELECT citus_drain_node('pg',5432); -- this may need to be run multiple times if
 
 SELECT create_distributed_table('metahtml_view', 'host_surt');
 SELECT create_distributed_table('metahtml_rollup_year_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('metahtml_rollup_textlang_host_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
 SELECT create_distributed_table('metahtml_rollup_langyear_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
 SELECT create_distributed_table('metahtml_rollup_textlangyear_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
 SELECT create_distributed_table('metahtml_rollup_month_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
@@ -26,11 +27,24 @@ SELECT create_distributed_table('metahtml_rollup_day_host_theta_raw', 'metahtml_
 SELECT create_distributed_table('metahtml_rollup_langday_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
 SELECT create_distributed_table('metahtml_rollup_textlangday_host_theta_raw', 'metahtml_view.host_surt', colocate_with=>'metahtml_view');
 
-SELECT create_distributed_table('contextvector', 'focus');
-SELECT create_distributed_table('contextvector_focuslang_host_raw', 'contextvector.focus', colocate_with=>'contextvector');
-SELECT create_distributed_table('contextvector_focusdaylang_raw', 'contextvector.focus', colocate_with=>'contextvector');
-SELECT create_distributed_table('contextvector_focusdaylang_host_raw', 'contextvector.focus', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector', 'host_surt', colocate_with=>'metahtml_view');
+SELECT create_distributed_table('contextvector_focuslang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_focusdaylang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_daylang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_day_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_focusmonthlang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_monthlang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_month_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_focusyearlang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_yearlang_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
+SELECT create_distributed_table('contextvector_year_host_raw', 'contextvector.host_surt', colocate_with=>'contextvector');
 
+
+-- FIXME:
+-- can't distribute this table because the get_nullable function doesn't work; (run \d metahtml_linksall_host_raw to see src/dest are nullable when they should be not null)
+-- need to add test cases for get_nullable to pgrollup;
+-- see contextvector_day_host_raw for an example where it worked
+SELECT create_distributed_table('metahtml_linksall_host_raw', 'dest', colocate_with=>'metahtml_view');
 --------------------------------------------------------------------------------
 -- health of the citus cluster
 --------------------------------------------------------------------------------

@@ -7,7 +7,7 @@ WORKDIR $HOME
 ENTRYPOINT ["bash"]
 
 # install dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y \
     curl \
     jq \
     parallel \

@@ -1,5 +1,5 @@
 from project import app
-from project.utils import do_query, render_template, debug_timer
+from project.utils import do_query, render_template, debug_timer, route_get
 import chajda
 import chajda.tsquery
 from flask import request
@@ -39,7 +39,7 @@ def get_term_counts(time_lo_def, time_hi_def, terms, lang, filter_hosts, granula
             from metahtml_rollup_lang{granularity}{host}_theta
             where "metahtml_view.language" = :lang
               and timestamp_published_{granularity} >= :time_lo
-              and timestamp_published_{granularity} <  :time_hi
+              and timestamp_published_{granularity} <= :time_hi
               {clause_host}
             group by x
         ) as t_total using (x)
@@ -160,7 +160,23 @@ def get_term_counts(time_lo_def, time_hi_def, terms, lang, filter_hosts, granula
     return do_query('count_term_counts', sql_term_counts, bind_params)
 
 
-def get_count_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, normalize, terms_normalize, granularity, mentions_axis):
+@route_get('/json/counts')
+def json_count(time_lo_def='1960-01-01', time_hi_def='2020-01-01', query='', granularity='year', mentions_axis='hostpath'):
+    lang = 'en'
+    parse = chajda.tsquery.parse(lang, query)
+    tsquery = parse['tsquery']
+    try:
+        filters = list(parse['filtertree'].find_data('filter'))
+        filter_hosts = [ t.children[1] for t in filters if t.children[0] in ['site','host'] ]
+    except:
+        filter_hosts = []
+    terms = parse['terms']
+
+    logging.warning('terms='+str(terms))
+    return get_count_data(time_lo_def, time_hi_def, terms, lang=lang, filter_hosts=filter_hosts, normalize='none', granularity=granularity, mentions_axis=mentions_axis)
+
+
+def get_count_data(time_lo_def='1960-01-01', time_hi_def='2020-01-01', terms=[], lang='en', filter_hosts=[], normalize='none', terms_normalize=None, granularity='year', mentions_axis='hostpath'):
     '''
     FIXME:
     This should obey the property that the term_counts with multiple terms is always <= term_counts with the individual terms,
@@ -263,12 +279,12 @@ def get_count_data(time_lo_def, time_hi_def, terms, lang, filter_hosts, normaliz
                     theta_sketch_get_estimate_and_bounds(coalesce("theta_sketch", theta_sketch_empty()), 3) as term_counts
                 from (
                     select
-                        theta_sketch_union("theta_sketch_distinct(metahtml_view.hostpath_surt)") as theta_sketch,
+                        theta_sketch_union("theta_sketch_distinct(metahtml_view.{mentions_axis}_surt)") as theta_sketch,
                         timestamp_published_{granularity} as x 
                     from metahtml_rollup_lang{granularity}{host}_theta_raw
                     where "metahtml_view.language" = :lang
                       and timestamp_published_{granularity} >= :time_lo
-                      and timestamp_published_{granularity} <  :time_hi
+                      and timestamp_published_{granularity} <= :time_hi
                       {clause_host}
                     group by timestamp_published_{granularity}
                 ) t1

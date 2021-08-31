@@ -16,27 +16,8 @@
     </head>
     <body>
         <a class="github-fork-ribbon right-top" href="https://github.com/mikeizbicki/novichenko" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
-        <header class=grid>
-        <div class="header logo">
-        <img src='/static/en-chajda.png' width=120px height=30px>
-        </div>
-        <div class="header search box">
-        <form id=form_search action='/search' method='get'>
-            <input type=text name=query value='{{query}}' />
-            {% if time_lo_args %}
-            <input type=hidden name=time_lo value='{{time_lo_args}}' />
-            {% endif %}
-            {% if time_hi_args %}
-            <input type=hidden name=time_hi value='{{time_hi_args}}' />
-            {% endif %}
-            <button type="submit"><i class="fa fa-search"></i></button>
-            <select name="lang" id="lang">
-              <option value="en" {%if lang=="en" %}selected{%endif%}>en</option>
-              <option value="es" {%if lang=="es" %}selected{%endif%}>es</option>
-            </select>
-        </form>
-        </div>
-        </header>
+        {% block header %}
+        {% endblock %}
         <main class=grid>
         {% block content %}
         {% endblock %}

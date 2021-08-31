@@ -1,9 +1,37 @@
 {% extends "base.html" %}
 
 {% block header %}
+        <header class=grid>
+        <div class="header logo">
+        <img src='/static/en-chajda.png' width=120px height=30px>
+        </div>
+        <div class="header search box">
+        <form id=form_search action='/search' method='get'>
+            <input type=text name=query value='{{query}}' />
+            {% if time_lo_args %}
+            <input type=hidden name=time_lo value='{{time_lo_args}}' />
+            {% endif %}
+            {% if time_hi_args %}
+            <input type=hidden name=time_hi value='{{time_hi_args}}' />
+            {% endif %}
+            <button type="submit"><i class="fa fa-search"></i></button>
+            <select name="lang" id="lang">
+              <option value="en" {%if lang=="en" %}selected{%endif%}>en</option>
+              <option value="es" {%if lang=="es" %}selected{%endif%}>es</option>
+            </select>
+        </form>
+        </div>
+        </header>
 {% endblock %}
 
 {% block content %}
+{% if granularity == 'year' %}
+{% set default_window_size = 1 %}
+{% elif granularity == 'month' %}
+{% set default_window_size = 6 %}
+{% elif granularity == 'day' %}
+{% set default_window_size = 90 %}
+{% endif %}
 
 <script>
 var count_data;
@@ -181,6 +209,7 @@ function ema_simple(xs,ys,alpha,weights=null) {
                     'sentiment': ['positive good better best', 'negative bad worse worst'], 
                     'success': ['successful', 'failed'],
                     'threat': ['danger war menace enemy', 'safety peace friend ally'],
+                    'truth': ['truth', 'lie'],
                     'war': ['war', 'peace'],
                     'wealth': ['wealth affluence rich asset', 'debt poverty poor liability'],
                     //'life': ['alive active awake living', 'dead inactive asleep dying'],
@@ -207,12 +236,16 @@ function ema_simple(xs,ys,alpha,weights=null) {
             pos words <input id=pos_words name=pos_words form=form_search readonly value="{{pos_words}}">
             <br>
             neg words <input id=neg_words name=neg_words form=form_search readonly value="{{neg_words}}">
+            <br>
+            <a href='/wordcloud?pos_words={{pos_words}}&neg_words={{neg_words}}&dim=25'>visualize projection</a>
+            <br>
+            <br>
         </li>
         <li>window size 
             <br>
-            <input type="range"  id="window_size_range" min="1" max="365" value="180" oninput="set_window_size(this.value)" />
+            <input type="range"  id="window_size_range" min="1" max="{{default_window_size*10}}" value="{{default_window_size}}" oninput="set_window_size(this.value)" />
             <br>
-            <input type="number" id="window_size_number" min="1" max="365" value="180" step=30 oninput="set_window_size(this.value)" />
+            <input type="number" id="window_size_number" min="1" max="{{default_window_size*10}}" value="{{default_window_size}}" oninput="set_window_size(this.value)" />
             <script>
             function set_window_size(window_size) {
                 document.getElementById('window_size_range').value = window_size;
@@ -267,7 +300,7 @@ var trace1 = {
     width: 1,
   },
   marker: {
-    size: 3,
+    size: 1,
   },
 };
 
@@ -303,7 +336,7 @@ var trace2 = {
 
 var trace3 = {
   x: projection_data[0], //.map(timeConverter),
-  y: moving_average([],projection_data_raw[1],180,projection_data_raw[2]),
+  y: moving_average([],projection_data_raw[1],{{default_window_size}},projection_data_raw[2]),
   xaxis: 'x2',
   yaxis: 'y2',
   type: type,
@@ -444,28 +477,34 @@ document.getElementById('orderby').addEventListener('change', orderby_onchange);
 </div>
 <div style='display:grid; grid-column:2; grid-row:3'>
 
-{%for result in search_results%}
-<div class=result>
-    <div class=result_host>
-        <!--<img src=https://{{result.host}}/favicon.ico height=12px width=12px />-->
-        {{result.date_published}} --
-        <!-- {{result.accessed_at}} -- -->
-        <a href='/host/{{result.host}}'>{{result.host}}</a>
-        {{result.rank}}
-        &nbsp;
-        &nbsp;
-        &nbsp;
-        id={{result.id}}
+<h4>Documents</h4>
+
+{% if not search_results %}
+    <em>no results</em>
+{% else %}
+    {%for result in search_results%}
+    <div class=result>
+        <div class=result_host>
+            <!--<img src=https://{{result.host}}/favicon.ico height=12px width=12px />-->
+            {{result.date_published}} --
+            <!-- {{result.accessed_at}} -- -->
+            <a href='/host/{{result.host}}'>{{result.host}}</a>
+            {{result.rank}}
+            &nbsp;
+            &nbsp;
+            &nbsp;
+            id={{result.id}}
+        </div>
+        <div class=result_title><a href="/metahtml?url={{result.url}}">{{result.title}}</a></div>
+        <div class=result_description>{{result.description}}</div>
     </div>
-    <div class=result_title><a href="/metahtml?url={{result.url}}">{{result.title}}</a></div>
-    <div class=result_description>{{result.description}}</div>
-</div>
-{%endfor%}
+    {%endfor%}
+{% endif %}
 </div>
 
 <script>
-/*
 var jsondata = [];
+
 function load_projection() {
     const xhttp = new XMLHttpRequest();
     xhttp.onload = function() {
@@ -475,16 +514,17 @@ function load_projection() {
     xhttp.open("GET", "/json/projection", true);
     xhttp.send();
 }
+load_projection();
+
 function load_count() {
     const xhttp = new XMLHttpRequest();
     xhttp.onload = function() {
         jsondata.count = JSON.parse(this.responseText);
         console.log(jsondata);
     }
-    xhttp.open("GET", "/json/mention", true);
+    xhttp.open("GET", "/json/count", true);
     xhttp.send();
 }
-load_projection();
-*/
+load_count();
 </script>
 {% endblock %}

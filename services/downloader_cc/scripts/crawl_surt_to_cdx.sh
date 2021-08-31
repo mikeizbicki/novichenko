@@ -2,8 +2,8 @@
 
 set -e
 
-crawl=$1
-surt=$2
+crawl="$1"
+surt="$2"
 idx=$DATADIR/cc-index/collections/$crawl/indexes/cluster.idx 
 
 outdir=$DATADIR/cdx/$surt

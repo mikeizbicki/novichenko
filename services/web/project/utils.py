@@ -1,7 +1,28 @@
+from project import app
 import time
 from sqlalchemy.sql import text
 from flask import Flask, send_from_directory, g, request
 import flask
+import functools
+import inspect
+import itertools
+
+
+def route_get(route):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper():
+            signature = inspect.signature(f)
+            kwargs = {}
+            for parameter in signature.parameters.values():
+                #import logging
+                #logging.warning("parameter.name="+str(parameter.name))
+                #logging.warning("rrr"+str(request.args.get(parameter.name)))
+                kwargs[parameter.name] = request.args.get(parameter.name, parameter.default)
+            return f(**kwargs)
+        wrapper = app.route(route)(wrapper)
+        return wrapper
+    return decorator
 
 
 def render_template(name, **kwargs):
@@ -27,22 +48,28 @@ def render_template(name, **kwargs):
         )
 
 
-def do_query(name, sql, binds):
+def do_query(name, sql, binds, explain_mode='explain'):
     '''
     performs a query with the database and records debug information that will be stored for later
     '''
-    start = time.time()
-    res = list(g.connection.execute(text(sql), binds))
-    explain = '\n'.join(map(lambda x:x[0], g.connection.execute(text('explain '+sql), binds)))
-    stop = time.time()
-    g.queries.append({
-        'name': name,
-        'sql': sql,
-        'binds': binds,
-        'runtime': stop-start,
-        'explain': str(explain),
-        })
-    return list(res)
+    with g.connection.begin():
+        start = time.time()
+        res = list(g.connection.execute(text(sql), binds))
+        if explain_mode == 'explain':
+            explain = '\n'.join(map(lambda x:x[0], g.connection.execute(text('explain '+sql), binds)))
+        elif explain_mode == 'explain analyze':
+            explain = '\n'.join(map(lambda x:x[0], g.connection.execute(text('explain (buffers, analyze)'+sql), binds)))
+        else:
+            explain = ''
+        stop = time.time()
+        g.queries.append({
+            'name': name,
+            'sql': sql,
+            'binds': binds,
+            'runtime': stop-start,
+            'explain': str(explain),
+            })
+        return list(res)
 
 
 class debug_timer:

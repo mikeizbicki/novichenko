@@ -1,7 +1,64 @@
+{% extends "base.html" %}
+
+{% block header %}
+<header class=grid>
+        <div class="header logo">
+        <img src='/static/en-chajda.png' width=120px height=30px>
+        </div>
+        <div style='display:grid; grid-column:2/5' width=100%>
+        <form id=form_search action='/wordcloud' method='get' style="display: flex; align-items: center; margin-top: 8;">
+            positive:
+            <input type=text id=pos_words name=pos_words />
+            &nbsp;
+            negative:
+            <input type=text id=neg_words name=neg_words />
+            &nbsp;
+            seed:
+            <input type=text id=cloud_words name=cloud_words />
+            &nbsp;
+            lang (in):
+            <select name="lang_in" id="lang_in">
+              <option value="en">en</option>
+              <option value="es">es</option>
+            </select>
+            &nbsp;
+            lang (out):
+            <select name="lang_out" id="lang_out">
+              <option value="en">en</option>
+              <option value="es">es</option>
+            </select>
+            &nbsp;
+            dim:
+            <select name="dim" id="dim">
+              <option value="25" default>25</option>
+              <option value="50" >50</option>
+              <option value="100" >100</option>
+              <option value="200" >200</option>
+              <option value="300" >300</option>
+            </select>
+            &nbsp;
+            <button type="submit"><i class="fa fa-search"></i></button>
+    <script>
+        document.getElementById("pos_words").value = getParameterByName('pos_words');
+        document.getElementById("neg_words").value = getParameterByName('neg_words');
+        document.getElementById("cloud_words").value = getParameterByName('cloud_words');
+        document.getElementById("lang_in").value = getParameterByName('lang_in');
+        document.getElementById("lang_out").value = getParameterByName('lang_out');
+        document.getElementById("dim").value = getParameterByName('dim');
+    </script>
+        </form>
+        </div>
+</header>
+{% endblock %}
+
+{% block content %}
 <script src='https://cdn.plot.ly/plotly-2.3.0.min.js'></script>
 <script src='static/utils.js'></script>
 
 <main width=800px>
+<div style="margin:20;">
+    Angle: <span id=angle></span>
+</div>
 <div id=wordcloud></div>
 </main>
 <script>
@@ -45,12 +102,12 @@ function load_wordcloud() {
             type: 'scatter',
         }
         var layout = {
-            height: 0.95*window.innerHeight,
+            height: 0.75*window.innerHeight,
             width: 0.95*window.innerWidth,
             showlegend: false,
             //margin: {pad: 0},
             margin:{
-                l:0,
+                l:50,
                 r:0,
                 t:0,
                 b:0,
@@ -66,20 +123,26 @@ function load_wordcloud() {
             config: { responsive: true }
         };
         Plotly.newPlot('wordcloud',[trace1], layout);
+        document.getElementById("angle").innerHTML = wordcloud_data['angle'].toFixed(2) ;
     }
     pos_words = getParameterByName('pos_words');
     neg_words = getParameterByName('neg_words');
     cloud_words = getParameterByName('cloud_words');
-    cloud_only = getParameterByName('cloud_only');
+    lang_in = getParameterByName('lang_in');
+    lang_out = getParameterByName('lang_out');
+    dim = getParameterByName('dim');
     n = getParameterByName('n');
     let url = "/json/wordcloud?";
     if (pos_words) url+="&pos_words="+pos_words;
     if (neg_words) url+="&neg_words="+neg_words;
     if (cloud_words) url+="&cloud_words="+cloud_words;
-    if (cloud_only) url+="&cloud_only="+cloud_only;
+    if (lang_in) url+="&lang_in="+lang_in;
+    if (lang_out) url+="&lang_out="+lang_out;
+    if (dim) url+="&dim="+dim;
     if (n) url+="&n="+n;
     xhttp.open("GET", url, true);
     xhttp.send();
 }
 load_wordcloud();
 </script>
+{% endblock %}
