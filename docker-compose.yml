@@ -19,7 +19,8 @@ services:
     shm_size: 16gb
     labels: ['com.citusdata.role=Master']
     volumes:
-      - /home/usertest/pg_volume:/var/lib/postgresql/data/
+        #- /home/usertest/pg_volume:/var/lib/postgresql/data/
+      - /home/usertest/bigdata/pg_volume:/var/lib/postgresql/data/
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
     env_file:

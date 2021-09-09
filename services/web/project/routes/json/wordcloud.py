@@ -19,13 +19,12 @@ def json_wordcloud():
     neg_words = request.args.get('neg_words','')
     neg_words = neg_words.split()
 
-    cloud_words = request.args.get('cloud_words','')
-    cloud_words = cloud_words.split()
-    logging.info('cloud_words='+str(cloud_words))
+    seed_words = request.args.get('seed_words','')
+    seed_words = seed_words.split()
+    logging.info('seed_words='+str(seed_words))
 
     lang_in = request.args.get('lang_in','en')
     lang_out = request.args.get('lang_out','en')
-    logging.info(f'lang_in={lang_in}; lang_out={lang_out}')
 
     try:
         dim = int(request.args.get('dim'))
@@ -38,7 +37,12 @@ def json_wordcloud():
     except (TypeError,ValueError):
         n = 200
 
-    return make_wordcloud(pos_words, neg_words, cloud_words, lang_in, lang_out, dim, n=n)
+    try:
+        n_top = int(request.args.get('n_top'))
+    except (TypeError,ValueError):
+        n_top = 0
+
+    return make_wordcloud(pos_words, neg_words, seed_words, lang_in, lang_out, dim, n, n_top)
 
 
 def cosine_distance(a,b):
@@ -49,12 +53,13 @@ def mean(xs):
     return sum(xs)/(len(xs)+1e-20)
 
 
-def make_wordcloud(pos_words, neg_words, cloud_words, lang_in='en', lang_out='en', dim=25, n=100):
+def make_wordcloud(pos_words, neg_words, seed_words, lang_in='en', lang_out='en', dim=25, n=100, n_top=0):
     '''
     >>> make_wordcloud(['cat'], ['dog'], [])
     '''
-    embedding_in = chajda.embeddings.get_embedding(lang=lang_in, max_n=100000, max_d=dim, storage_dir='./embeddings')
+    logging.info(f'lang_in={lang_in}; lang_out={lang_out}')
     embedding_out = chajda.embeddings.get_embedding(lang=lang_out, max_n=100000, max_d=dim, storage_dir='./embeddings')
+    embedding_in = chajda.embeddings.get_embedding(lang=lang_in, max_n=100000, max_d=dim, storage_dir='./embeddings')
     projectionvector, unknown_words = embedding_in.make_projectionvector(pos_words, neg_words)
 
     def words_to_points(words):
@@ -80,7 +85,7 @@ def make_wordcloud(pos_words, neg_words, cloud_words, lang_in='en', lang_out='en
         target_points += target_mean
 
     # compute the words to plot
-    search_words = cloud_words if cloud_words and len(cloud_words)>0 else target_words | set(cloud_words)
+    search_words = seed_words if seed_words and len(seed_words)>0 else target_words | set(seed_words)
     search_points = words_to_points(search_words)
     neighbors = []
     for point in search_points:
@@ -89,6 +94,7 @@ def make_wordcloud(pos_words, neg_words, cloud_words, lang_in='en', lang_out='en
                 neighbors.append(neighbor)
         except KeyError:
             pass
+    neighbors += embedding_out.kv.index_to_key[:n_top]
     plot_words = set(chajda.tsvector.lemmatize(lang_out,' '.join(neighbors), add_positions=False).split())
 
     # compute the plotting coordinates

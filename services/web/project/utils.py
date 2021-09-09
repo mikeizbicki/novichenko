@@ -15,10 +15,20 @@ def route_get(route):
             signature = inspect.signature(f)
             kwargs = {}
             for parameter in signature.parameters.values():
-                #import logging
-                #logging.warning("parameter.name="+str(parameter.name))
-                #logging.warning("rrr"+str(request.args.get(parameter.name)))
-                kwargs[parameter.name] = request.args.get(parameter.name, parameter.default)
+                import logging
+                logging.warning("parameter.name="+str(parameter.name))
+                logging.warning("rrr"+str(request.args.get(parameter.name)))
+                logging.warning(f"parameter.default={parameter.default}")
+                logging.warning(f"parameter.annotation={parameter.annotation}")
+                type_converter = lambda x:x
+                if parameter.annotation != inspect.Parameter.empty:
+                    type_converter = parameter.annotation
+                elif parameter.default and type(parameter.default) != type(None):
+                    type_converter = type(parameter.default)
+                logging.warning(f"type_converter={type_converter}")
+                converted_val = type_converter(request.args.get(parameter.name, parameter.default))
+                logging.warning(f"converted_val={converted_val}")
+                kwargs[parameter.name] = converted_val
             return f(**kwargs)
         wrapper = app.route(route)(wrapper)
         return wrapper

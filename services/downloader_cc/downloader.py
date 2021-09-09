@@ -343,7 +343,7 @@ def bulk_insert(connection, id_source, batch):
                 'tsv_content': tsv_content,
                 'links': links,
                 })
-            embedding = chajda.embeddings.get_embedding(lang=lang_iso, max_n=100000, max_d=25, storage_dir='./embeddings')
+            embedding = chajda.embeddings.get_embedding(lang=lang_iso, max_n=100000, max_d=50, storage_dir='./embeddings')
             #wordcontexts = chajda.tsvector.tsvector_to_wordcontext(tsv_content, n=2, windowsize=10)
             #wordcontexts_mod = defaultdict(lambda: [])
             #for focus,context,count in wordcontexts:
@@ -357,14 +357,14 @@ def bulk_insert(connection, id_source, batch):
             #        'focus': focus,
             #        'language': lang_iso,
             #        })
-            contextvectors = chajda.tsvector.tsvector_to_contextvectors(embedding, tsv_content, n=2, normalize=False)
+            contextvectors = chajda.tsvector.tsvector_to_contextvectors(embedding, tsv_content, n=2, a=1e-4, normalize=True, embedding_words_only=True, force_words=['north korea', 'south korea', 'best korea', 'united states', 'united nations', 'iaea', 'ctbto', 'npt', 'us army', 'us navy', 'air force', 'donald trump', 'president trump', 'president obama', 'president bush', 'president clinton'])
             for focus,[context,count] in contextvectors.items():
                 batch_contextvector.append({
                     'host_surt': url_host_surt(url),
                     'hostpath_surt': url_hostpath_surt(url),
                     'timestamp_published': timestamp_published,
-                    'context': context / math.sqrt(count),
-                    'count': count, # FIXME: this is the number of urls not the number of words; should we fix that?
+                    'context': context,
+                    'count': count,
                     'focus': focus,
                     'language': lang_iso,
                     })

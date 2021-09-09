@@ -26,7 +26,7 @@ def get_term_counts(time_lo_def, time_hi_def, terms, lang, filter_hosts, granula
         term_counts[3] as term_counts_hi
     from (
         select
-            x,
+            to_char(x, 'YYYY-MM-DD HH24:MI:SS') as x
             coalesce(total, 0) as total,
             coalesce(term_counts, ARRAY[0,0,0]) as term_counts
         from (
@@ -143,7 +143,12 @@ def get_term_counts(time_lo_def, time_hi_def, terms, lang, filter_hosts, granula
             order by x asc
         ) t
     )
-    select *
+    select
+        to_char(x, 'YYYY-MM-DD HH24:MI:SS') as x,
+        total,
+        term_counts,
+        term_counts_lo,
+        term_counts_hi
     from results
     where x >= (select min(x) from results where term_counts>0)
     ''')
@@ -160,7 +165,7 @@ def get_term_counts(time_lo_def, time_hi_def, terms, lang, filter_hosts, granula
     return do_query('count_term_counts', sql_term_counts, bind_params)
 
 
-@route_get('/json/counts')
+@route_get('/json/count')
 def json_count(time_lo_def='1960-01-01', time_hi_def='2020-01-01', query='', granularity='year', mentions_axis='hostpath'):
     lang = 'en'
     parse = chajda.tsquery.parse(lang, query)
@@ -260,7 +265,7 @@ def get_count_data(time_lo_def='1960-01-01', time_hi_def='2020-01-01', terms=[],
         )
         select
             coalesce(total,0) as total,
-            x
+            to_char(x, 'YYYY-MM-DD HH24:MI:SS') as x
         from results
         right outer join ( 
             select generate_series((select min(x) from results), (select max(x) from results), '1 {granularity}'::interval) as x
@@ -295,7 +300,7 @@ def get_count_data(time_lo_def='1960-01-01', time_hi_def='2020-01-01', terms=[],
             coalesce(term_counts,0) as term_counts,
             coalesce(term_counts_hi,0) as term_counts_hi,
             coalesce(term_counts_lo,0) as term_counts_lo,
-            x
+            to_char(x, 'YYYY-MM-DD HH24:MI:SS') as x
         from results
         right outer join ( 
             select generate_series((select min(x) from results), (select max(x) from results), '1 {granularity}'::interval) as x

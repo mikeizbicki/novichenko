@@ -240,7 +240,7 @@ CREATE VIEW cron_running AS (
 -- configure pgrollup for minimal overhead rollup tables
 CREATE EXTENSION pgrollup;
 UPDATE pgrollup_settings SET value='cron' WHERE name='default_mode';
-UPDATE pgrollup_settings SET value='10000' WHERE name='cron_block_size';
+UPDATE pgrollup_settings SET value='2000' WHERE name='cron_block_size';
 CREATE EVENT TRIGGER pgrollup_from_matview_trigger ON ddl_command_end WHEN TAG IN ('CREATE MATERIALIZED VIEW') EXECUTE PROCEDURE pgrollup_from_matview_event();
 
 -- extensions for improved debugging
@@ -1554,7 +1554,7 @@ UPDATE pgrollup_settings SET value='1000000' WHERE name='cron_block_size';
 
 CREATE TABLE contextvector (
     id BIGSERIAL NOT NULL,
-    context vector(25),
+    context vector(50),
     timestamp_published TIMESTAMPTZ NOT NULL,
     count bigint,  -- FIXME: we could use smallint here and save some space, we just need to cast the rollups to int/bigint to avoid overflow
     host_surt TEXT,
@@ -1826,7 +1826,7 @@ SELECT partman.create_parent('public.contextvector_focusdaylang_host_raw', 'time
 -- update configuration options
 --------------------------------------------------------------------------------
 UPDATE partman.part_config SET infinite_time_partitions = true;
-UPDATE pgrollup_settings SET value='10000' WHERE name='cron_block_size';
+UPDATE pgrollup_settings SET value='2000' WHERE name='cron_block_size';
 CREATE EVENT TRIGGER pgrollup_from_matview_trigger ON ddl_command_end WHEN TAG IN ('CREATE MATERIALIZED VIEW') EXECUTE PROCEDURE pgrollup_from_matview_event();
 
 --------------------------------------------------------------------------------

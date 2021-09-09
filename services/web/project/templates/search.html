@@ -1,154 +1,42 @@
 {% extends "base.html" %}
 
 {% block header %}
-        <header class=grid>
-        <div class="header logo">
-        <img src='/static/en-chajda.png' width=120px height=30px>
-        </div>
-        <div class="header search box">
-        <form id=form_search action='/search' method='get'>
-            <input type=text name=query value='{{query}}' />
-            {% if time_lo_args %}
-            <input type=hidden name=time_lo value='{{time_lo_args}}' />
-            {% endif %}
-            {% if time_hi_args %}
-            <input type=hidden name=time_hi value='{{time_hi_args}}' />
-            {% endif %}
-            <button type="submit"><i class="fa fa-search"></i></button>
-            <select name="lang" id="lang">
-              <option value="en" {%if lang=="en" %}selected{%endif%}>en</option>
-              <option value="es" {%if lang=="es" %}selected{%endif%}>es</option>
-            </select>
-        </form>
-        </div>
-        </header>
+<header class=grid>
+<div class="header logo">
+<img src='/static/en-chajda.png' width=120px height=30px>
+</div>
+<div class="header search box">
+<form id=form_search onsubmit='load_all_data(); return false;'>
+    <!--action='/search' method='get'> -->
+    <input type=text name=query value='{{query}}' />
+    {% if time_lo_args %}
+    <input type=hidden name=time_lo value='{{time_lo_args}}' />
+    {% endif %}
+    {% if time_hi_args %}
+    <input type=hidden name=time_hi value='{{time_hi_args}}' />
+    {% endif %}
+    <button type="submit"><i class="fa fa-search"></i></button>
+    <select name="lang" id="lang">
+      <option value="en" {%if lang=="en" %}selected{%endif%}>en</option>
+      <option value="es" {%if lang=="es" %}selected{%endif%}>es</option>
+    </select>
+</form>
+</div>
+</header>
 {% endblock %}
 
 {% block content %}
-{% if granularity == 'year' %}
-{% set default_window_size = 1 %}
-{% elif granularity == 'month' %}
-{% set default_window_size = 6 %}
-{% elif granularity == 'day' %}
-{% set default_window_size = 90 %}
-{% endif %}
-
 <script>
-var count_data;
-function load_count_data() {
-    count_data = [
-        [{%for x in count_data['xs']%} '{{x}}', {%endfor%}],
-        [{%for y in count_data['term_counts']%} {{y}}, {%endfor%}],
-        [{%for y in count_data['term_counts_lo']%} {{y}}, {%endfor%}],
-        [{%for y in count_data['term_counts_hi']%} {{y}}, {%endfor%}],
-    ];
-    console.log(count_data);
+var window_size = 1;
+function load_all_data() {
+    load_count();
+    load_projection();
+    load_documents();
+    draw_documents();
 }
-load_count_data();
-
-
-var projection_data;
-var projection_data_raw;
-var projection_dots;
-function load_projection_data(add_randoms=true) {
-    projection_data_raw = [
-        [{%for x in projection_data['xs']%} '{{x}}', {%endfor%}],
-        [{%for y in projection_data['projections']%} {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
-        [{%for y in projection_data['counts']%}     {% if y %} {{y}} {% else %} null {%endif%}, {%endfor%}],
-    ];
-
-    if (add_randoms) {
-        let randoms = [];
-        let xs = [];
-        let total_elements = projection_data_raw[2].reduce((a, b) => a + b, 0);
-        let total_randoms = Math.min(10000.0,total_elements);
-        let xs_index = 0;
-        let randoms_at_index = 0;
-        let stddev = calc_stddev(projection_data_raw[1]);
-
-        for (var i=0; i<total_randoms && xs_index <projection_data_raw[0].length; i++) {
-            randoms_at_index += 1
-            if (randoms_at_index > projection_data_raw[2][xs_index]/total_elements*total_randoms) {
-                xs_index += 1;
-                randoms_at_index = 0;
-                i -= 1;
-            }
-            else {
-                if (projection_data_raw[1][xs_index] !== null) {
-                    xs.push(projection_data_raw[0][xs_index])
-                    // FIXME:
-                    // this uses the Box-Muller transform to convert two uniform random variables into two normal random variables;
-                    // the current implementation is 2x slower than it could be since we discard one of the normal random variables
-                    let r1 = Math.random();
-                    let r2 = Math.random();
-                    let random = stddev * Math.sqrt(-2*Math.log(r1))*Math.cos(2*Math.PI*r2);
-                    randoms.push(projection_data_raw[1][xs_index]+random);
-                }
-            }
-        }
-        projection_data = [
-            projection_data_raw[0].concat(xs),
-            projection_data_raw[1].concat(randoms),
-            ];
-    }
-    else {
-        projection_data = [
-            projection_data_raw[0],
-            projection_data_raw[1],
-            ];
-    }
-
-    projection_dots = 0;
-    for (let i=0; i<projection_data[1].length; i++) {
-        if (projection_data[1][i]) {
-            projection_dots += 1;
-        }
-    }
-}
-load_projection_data(true);
 </script>
 
-<script>
 
-function ema(xs,ys,alpha,weights) {
-    var ys2 = [];
-    var last_ys = null;
-    var ema = ys[0];
-    var beta = 0;
-    for (var i=0; i<ys.length; i++) {
-        if (ys[i] === null)
-            next_ys = last_ys;
-        else
-            next_ys = ys[i];
-        if (weights[i] > 0) {
-            if (ema === null) 
-                ema = next_ys;
-            else
-                beta = alpha**weights[i];
-                ema = beta*ema + (1-beta)*next_ys;
-            console.log('i='+i+', ema='+ema);
-        }
-        ys2.push(ema);
-        last_ys = next_ys;
-    }
-    return ys2;
-}
-function ema_simple(xs,ys,alpha,weights=null) {
-    var ys2 = [];
-    var last_ys = null;
-    var ema = ys[0];
-    for (var i=0; i<ys.length; i++) {
-        if (ys[i] === null)
-            next_ys = last_ys;
-        else
-            next_ys = ys[i];
-        ema = alpha*ema + (1-alpha)*next_ys;
-        ys2.push(ema);
-        last_ys = next_ys;
-    }
-    return ys2;
-}
-</script>
 
 <aside id=aside_xy style='grid-row: 1'>
     <h3>Mentions Options</h3>
@@ -159,9 +47,7 @@ function ema_simple(xs,ys,alpha,weights=null) {
               <option value="hostpath"{%if mentions_axis=="hostpath" %}selected{%endif%}>hostpath</option>
             </select>
             <script>
-                document.getElementById('mentions_axis').addEventListener('change', function(e) {
-                    document.getElementById('form_search').submit();
-                });
+                document.getElementById('mentions_axis').addEventListener('change', load_all_data);
             </script>
         </li>
         <li>normalization
@@ -173,21 +59,17 @@ function ema_simple(xs,ys,alpha,weights=null) {
               {% endfor %}
             </select>
             <script>
-                document.getElementById('normalize').addEventListener('change', function(e) {
-                    document.getElementById('form_search').submit();
-                });
+                document.getElementById('normalize').addEventListener('change', load_all_data);
             </script>
         </li>
         <li>granularity
             <select name="granularity" id="granularity" form=form_search>
-              <option value="year"  {%if granularity=="year" %}selected{%endif%}>year</option>
-              <option value="month" {%if granularity=="month"%}selected{%endif%}>month</option>
-              <option value="day"   {%if granularity=="day"  %}selected{%endif%}>day</option>
+              <option value="year"  selected>year</option>
+              <option value="month"         >month</option>
+              <option value="day"           >day</option>
             </select>
             <script>
-                document.getElementById('granularity').addEventListener('change', function(e) {
-                    document.getElementById('form_search').submit();
-                });
+                document.getElementById('granularity').addEventListener('change', load_all_data);
             </script>
         </li>
     </ul>
@@ -201,16 +83,16 @@ function ema_simple(xs,ys,alpha,weights=null) {
             <script>
                 var axis_dictionary = {
                     'anger': ['angry agitated', 'calm serene'],
-                    'gender': ['male father king he', 'female mother queen she'],
-                    'happiness': ['happy joy pleasure delight', 'sad misery dissatisfaction bore'],
+                    'gender': ['female mother queen she', 'male father king he'],
+                    'happiness': ['sad misery dissatisfaction bore', 'happy joy pleasure delight'],
                     'intelligence': ['intelligent', 'stupid'],
-                    'freedom': ['freedom', 'oppression'],
-                    'scary': ['scary afraid fear', 'relaxing unafraid comfort'], 
+                    'freedom': ['oppression', 'freedom'],
+                    'scary': ['relaxing unafraid comfort','scary afraid fear'], 
                     'sentiment': ['positive good better best', 'negative bad worse worst'], 
                     'success': ['successful', 'failed'],
-                    'threat': ['danger war menace enemy', 'safety peace friend ally'],
+                    'threat': ['safety peace friend ally', 'danger war menace enemy'],
                     'truth': ['truth', 'lie'],
-                    'war': ['war', 'peace'],
+                    'war': ['peace', 'war'],
                     'wealth': ['wealth affluence rich asset', 'debt poverty poor liability'],
                     //'life': ['alive active awake living', 'dead inactive asleep dying'],
                     //'erotic': ['erotic sexy sensual', 'unerotic polite propper'],
@@ -226,11 +108,12 @@ function ema_simple(xs,ys,alpha,weights=null) {
                     }
                     select.add(option);
                 }
-                select.addEventListener('change', function(e) {
+                function set_projection_axis(e) {
                     document.getElementById('pos_words').value = axis_dictionary[e.currentTarget.value][0];
                     document.getElementById('neg_words').value = axis_dictionary[e.currentTarget.value][1];
-                    document.getElementById('form_search').submit();
-                });
+                    load_all_data();
+                }
+                document.getElementById('projection_axis').addEventListener('change', set_projection_axis);
             </script>
             <br>
             pos words <input id=pos_words name=pos_words form=form_search readonly value="{{pos_words}}">
@@ -241,21 +124,26 @@ function ema_simple(xs,ys,alpha,weights=null) {
             <br>
             <br>
         </li>
+        <li>
+            <input form=form_search type="checkbox" id="rm_vh_data" name="rm_vh_data" value="True" checked><label for="rm_vh_data">rm_vh_data</label><br>
+            <input form=form_search type="checkbox" id="rm_vh_hardcoded" name="rm_vh_hardcoded" value="True" checked><label for="rm_vh_hardcoded">rm_vh_hardcoded</label><br>
+    <script>
+    document.getElementById('rm_vh_data').addEventListener('change', load_all_data);
+    document.getElementById('rm_vh_hardcoded').addEventListener('change', load_all_data);
+    </script>
+        </li>
         <li>window size 
             <br>
-            <input type="range"  id="window_size_range" min="1" max="{{default_window_size*10}}" value="{{default_window_size}}" oninput="set_window_size(this.value)" />
+            <input type="range"  id="window_size_range" min="1" max="24" value="1" oninput="set_window_size(this.value)" />
             <br>
-            <input type="number" id="window_size_number" min="1" max="{{default_window_size*10}}" value="{{default_window_size}}" oninput="set_window_size(this.value)" />
+            <input type="number" id="window_size_number" min="1" max="24" value="1" oninput="set_window_size(this.value)" />
             <script>
-            function set_window_size(window_size) {
+            function set_window_size(window_size_new) {
+                console.log('set_window_size()');
+                window_size = window_size_new;
                 document.getElementById('window_size_range').value = window_size;
                 document.getElementById('window_size_number').value = window_size;
-                trace3.y = moving_average([],projection_data_raw[1],window_size,projection_data_raw[2]);
-                Plotly.redraw('plotly',data);
-                //Plotly.react('plotly');
-                // FIXME:
-                // redraw() is slow because it redraws everything;
-                // we should only replot the changed traces
+                plotly_redraw();
             }
             </script>
         </li>
@@ -268,191 +156,17 @@ function ema_simple(xs,ys,alpha,weights=null) {
 <div style='display:grid; grid-column:1; grid-row:2;'>
     <h2 class=label>Projection</h2>
 </div>
+
 <div id=plotly></div>
+<!--
+<div style='display:grid;' id=plotly_container>
+<div style='grid-area:1/1;' id=plotly_loading>
+    <img src=/static/Ajax_loader_metal_512.gif'>
+</div>
+</div>
+-->
 
 
-<script>
-// taken from: https://stackoverflow.com/questions/847185/convert-a-unix-timestamp-to-time-in-javascript
-function timeConverter(UNIX_timestamp){
-  var a = new Date(UNIX_timestamp * 1000);
-  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var year = a.getFullYear();
-  var month = 1+a.getMonth(); //months[a.getMonth()];
-  var date = a.getDate();
-  var hour = a.getHours();
-  var min = a.getMinutes();
-  var sec = a.getSeconds();
-  return year+'-'+month+'-'+date;// +' ' + hour + ':' + min + ':' + sec ;
-  //var time = date + ' ' + month + ' ' + year ; //+ ' ' + hour + ':' + min + ':' + sec ;
-  //return time;
-}
-
-var type = 'scattergl';
-var trace1 = {
-  x: count_data[0], //.map(timeConverter),
-  y: count_data[1],
-  name: 'rate',
-  hovermode: 'closest',
-  type: type,
-  line: {
-    shape: 'hv',
-    color: '#55f',
-    width: 1,
-  },
-  marker: {
-    size: 1,
-  },
-};
-
-var trace1b = Object.assign({}, trace1);
-trace1b.y = count_data[2];
-trace1b.line = {
-    shape: 'hv',
-    color: '#ccf',
-    width: 1,
-  };
-
-var trace1c = Object.assign({}, trace1b);
-trace1c.y = count_data[3];
-
-var trace2 = {
-  x: projection_data[0], //.map(timeConverter),
-  y: projection_data[1],
-  xaxis: 'x2',
-  yaxis: 'y2',
-  type: type,
-  hoverinfo: 'skip',
-  line: {
-    shape: 'hv',
-    color: '#55f',
-    width: 1,
-  },
-  marker: {
-    size: 2+2*Math.max(0,1-projection_dots/10000)+2*Math.max(0,1-projection_dots/100),
-    color: '#ccf',
-  },
-  mode: 'markers',
-}
-
-var trace3 = {
-  x: projection_data[0], //.map(timeConverter),
-  y: moving_average([],projection_data_raw[1],{{default_window_size}},projection_data_raw[2]),
-  xaxis: 'x2',
-  yaxis: 'y2',
-  type: type,
-  hoverinfo: 'skip',
-  line: {
-    shape: 'spline',
-    color: '#55f',
-    width: 1,
-  },
-  marker: {
-    size: 1,
-  },
-};
-
-
-var data = [trace1b, trace1c, trace1, trace2, trace3];
-
-var layout = {
-    grid: {rows: 2, columns: 1}, //, pattern: 'independent'},
-    showlegend: false,
-    //margin: {pad: 0},
-    //height: 500,
-    margin:{
-        l:60,
-        r:0,
-        t:0,
-        b:0,
-        pad:0,
-    },
-    xaxis: {
-        autorange: true,
-        rangeselector: {
-          buttons: [
-            {
-              count: 1,
-              label: '1y',
-              step: 'year',
-              stepmode: 'backward'
-            },
-            {
-              count: 10,
-              label: '10y',
-              step: 'year',
-              stepmode: 'backward'
-            },
-            {
-              count: 100,
-              label: '100y',
-              step: 'year',
-              stepmode: 'backward'
-            },
-            {step: 'all'}
-          ]},
-        //rangeslider: {},
-        type: 'date'
-    },
-    xaxis2: {
-      matches: 'x',
-    },
-    yaxis: {
-      fixedrange: true,
-      rangemode: 'tozero',
-      title: {
-        text: 'count',
-        font: {
-          family: 'Courier New, monospace',
-          size: 18,
-          color: '#7f7f7f'
-        }
-      }
-    },
-    yaxis2: {
-      fixedrange: true,
-      rangemode: 'tozero',
-      title: {
-        text: 'projection',
-        font: {
-          family: 'Courier New, monospace',
-          size: 18,
-          color: '#7f7f7f'
-        }
-      }
-    }
-};
-
-Plotly.newPlot('plotly', data, layout, {displaylogo: false});
-
-document.getElementById('plotly').on('plotly_relayout',
-function(eventdata){
-    var url = window.location.href;
-    var time_lo = eventdata['xaxis.range[0]'];
-    if (time_lo) {
-        if (getParameterByName('granularity') == 'day')
-            time_lo = time_lo.toString().slice(0,10);
-        if (getParameterByName('granularity') == 'month')
-            time_lo = time_lo.toString().slice(0,7)+'-01';
-        url = updateURLParameter(url, 'time_lo', time_lo);
-    }
-    else {
-        url = removeURLParameter(url, 'time_lo');
-    }
-    var time_hi = eventdata['xaxis.range[1]'];
-    if (time_hi) {
-        if (getParameterByName('granularity') == 'day')
-            time_hi = time_hi.toString().slice(0,10);
-        if (getParameterByName('granularity') == 'month')
-            time_hi = time_hi.toString().slice(0,7)+'-01';
-        url = updateURLParameter(url, 'time_hi', time_hi);
-    }
-    else {
-        url = removeURLParameter(url, 'time_hi');
-    }
-    console.log(url);
-    window.location.href = url;
-});
-</script>
 
 
 <aside style="grid-row:3">
@@ -465,10 +179,7 @@ Order by
   <option value="rank"      {%if orderby=="rank"     %}selected{%endif%}>relevance</option>
 </select>
 <script>
-function orderby_onchange(e) {
-    window.location.href = updateURLParameter(window.location.href, 'orderby', e.currentTarget.value);
-}
-document.getElementById('orderby').addEventListener('change', orderby_onchange);
+document.getElementById('orderby').addEventListener('change', load_all_data);
 </script>
 </aside>
 
@@ -479,10 +190,312 @@ document.getElementById('orderby').addEventListener('change', orderby_onchange);
 
 <h4>Documents</h4>
 
-{% if not search_results %}
-    <em>no results</em>
-{% else %}
+<div id=documents>
+</div>
+</div>
+
+
+<script>
+
+function add_randoms(projection_data_raw, max_points=10000.0) {
+    let randoms = [];
+    let xs = [];
+    let total_elements = projection_data_raw['counts'].reduce((a, b) => a + b, 0);
+    let total_randoms = Math.min(max_points,total_elements);
+    let xs_index = 0;
+    let randoms_at_index = 0;
+    let stddev = calc_stddev(projection_data_raw['projections']);
+
+    for (var i=0; i<total_randoms && xs_index <projection_data_raw['xs'].length; i++) {
+        randoms_at_index += 1
+        if (randoms_at_index > projection_data_raw['counts'][xs_index]/total_elements*total_randoms) {
+            xs_index += 1;
+            randoms_at_index = 0;
+            i -= 1;
+        }
+        else {
+            if (projection_data_raw['projections'][xs_index] !== null) {
+                xs.push(projection_data_raw['xs'][xs_index])
+                // FIXME:
+                // this uses the Box-Muller transform to convert two uniform random variables into two normal random variables;
+                // the current implementation is 2x slower than it could be since we discard one of the normal random variables
+                let r1 = Math.random();
+                let r2 = Math.random();
+                let random = stddev * Math.sqrt(-2*Math.log(r1))*Math.cos(2*Math.PI*r2);
+                randoms.push(projection_data_raw['projections'][xs_index]+random);
+            }
+        }
+    }
+    var projection_data = {
+        'xs' : projection_data_raw['xs'].concat(xs),
+        'projections' : projection_data_raw['projections'].concat(randoms),
+        'counts' : projection_data_raw['counts'],
+        };
+
+    projection_data['dots'] = 0;
+    for (let i=0; i<projection_data['projections'].length; i++) {
+        if (projection_data['projections'][i]) {
+            projection_data['dots'] += 1;
+        }
+    }
+    return projection_data;
+}
+
+
+</script>
+
+<script>
+
+var count_data = null;
+var projection_data = null;
+
+function plotly_redraw(newPlot=false) {
+
+    var trace_count = {
+      hovermode: 'closest',
+      hovertemplate: '',
+      type: 'scattergl',
+      line: {
+        shape: 'hv',
+        color: '#55f',
+        width: 1,
+      },
+      marker: {
+        size: 1,
+      },
+    };
+
+    var trace_count_lo = Object.assign({}, trace_count);
+    trace_count_lo.line = {
+        hovermode: false,
+        hovertemplate: false,
+        shape: 'hv',
+        color: '#ccf',
+        width: 1,
+      };
+
+    var trace_count_hi = Object.assign({}, trace_count_lo);
+
+    if (count_data) {
+        trace_count.x = count_data['xs'];
+        trace_count.y = count_data['term_counts'];
+        trace_count_lo.x = count_data['xs'];
+        trace_count_lo.y = count_data['term_counts_lo'];
+        trace_count_hi.x = count_data['xs'];
+        trace_count_hi.y = count_data['term_counts_hi'];
+    }
+    else {
+        trace_count.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
+        trace_count.y = [null, null];
+        trace_count_lo.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
+        trace_count_lo.y = [null, null];
+        trace_count_hi.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
+        trace_count_hi.y = [null, null];
+    }
+
+    var trace_projection_dots = {
+      xaxis: 'x2',
+      yaxis: 'y2',
+      type: 'scattergl',
+      hoverinfo: 'skip',
+      line: {
+        shape: 'hv',
+        color: '#55f',
+        width: 1,
+      },
+      mode: 'markers',
+    }
+
+    var trace_projection_ave = {
+      xaxis: 'x2',
+      yaxis: 'y2',
+      type: 'scattergl',
+      hoverinfo: 'closest',
+      line: {
+        shape: 'spline',
+        color: '#55f',
+        width: 1,
+      },
+      marker: {
+        size: 1,
+      },
+    };
+
+    if (projection_data) {
+        trace_projection_dots.x = projection_data['xs'];
+        trace_projection_dots.y = projection_data['projections'];
+        trace_projection_dots.marker = {
+            size: 2+2*Math.max(0,1-projection_data['dots']/10000)+2*Math.max(0,1-projection_data['dots']/100),
+            color: '#ccf',
+        };
+        trace_projection_ave.x = projection_data['xs'];
+        trace_projection_ave.y = moving_average([],projection_data['projections'].slice(0,projection_data['counts'].length),window_size,projection_data['counts']);
+    }
+    else {
+        trace_projection_dots.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
+        trace_projection_dots.y = [null, null];
+        trace_projection_ave.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
+        trace_projection_ave.y = [null, null];
+    }
+
+    var data = [trace_count_lo, trace_count_hi, trace_count, trace_projection_dots, trace_projection_ave];
+
+    var layout = {
+        grid: {rows: 2, columns: 1},
+        showlegend: false,
+        margin:{
+            l:60,
+            r:0,
+            t:0,
+            b:0,
+            pad:0,
+        },
+        xaxis: {
+            autorange: true,
+            rangeselector: {
+              buttons: [
+                {
+                  count: 1,
+                  label: '1y',
+                  step: 'year',
+                  stepmode: 'backward'
+                },
+                {
+                  count: 10,
+                  label: '10y',
+                  step: 'year',
+                  stepmode: 'backward'
+                },
+                {
+                  count: 100,
+                  label: '100y',
+                  step: 'year',
+                  stepmode: 'backward'
+                },
+                {step: 'all'}
+              ]},
+            //rangeslider: {},
+            type: 'date'
+        },
+        xaxis2: {
+          matches: 'x',
+        },
+        yaxis: {
+          fixedrange: true,
+          rangemode: 'tozero',
+          title: {
+            text: 'count',
+            font: {
+              family: 'Courier New, monospace',
+              size: 18,
+              color: '#7f7f7f'
+            }
+          }
+        },
+        yaxis2: {
+          fixedrange: true,
+          rangemode: 'tozero',
+          title: {
+            text: 'projection',
+            font: {
+              family: 'Courier New, monospace',
+              size: 18,
+              color: '#7f7f7f'
+            }
+          }
+        }
+    };
+
+    if (newPlot) {
+        Plotly.newPlot('plotly', data, layout, {displaylogo: false});
+        console.log('plotly_redraw(true)');
+    }
+    else {
+        Plotly.react('plotly', data, layout, {displaylogo: false});
+        console.log('plotly_redraw(false)');
+    }
+};
+plotly_redraw(true);
+
+/*
+FIXME
+    document.getElementById('plotly').on('plotly_relayout',
+    function(eventdata){
+        var url = window.location.href;
+        var time_lo = eventdata['xaxis.range[0]'];
+        if (time_lo) {
+            if (getParameterByName('granularity') == 'day')
+                time_lo = time_lo.toString().slice(0,10);
+            if (getParameterByName('granularity') == 'month')
+                time_lo = time_lo.toString().slice(0,7)+'-01';
+            url = updateURLParameter(url, 'time_lo', time_lo);
+        }
+        else {
+            url = removeURLParameter(url, 'time_lo');
+        }
+        var time_hi = eventdata['xaxis.range[1]'];
+        if (time_hi) {
+            if (getParameterByName('granularity') == 'day')
+                time_hi = time_hi.toString().slice(0,10);
+            if (getParameterByName('granularity') == 'month')
+                time_hi = time_hi.toString().slice(0,7)+'-01';
+            url = updateURLParameter(url, 'time_hi', time_hi);
+        }
+        else {
+            url = removeURLParameter(url, 'time_hi');
+        }
+        console.log(url);
+        window.location.href = url;
+    });
+    */
+</script>
+
+<script>
+var jsondata = [];
+
+function load_projection() {
+    const xhttp = new XMLHttpRequest();
+    xhttp.onload = function() {
+        //projection_data = JSON.parse(this.responseText);
+        projection_data = add_randoms(JSON.parse(this.responseText));
+        plotly_redraw();
+    }
+    url = build_url_from_form_entries('/json/projection');
+    console.log('load_projection url='+url);
+    xhttp.open("GET", url);
+    xhttp.send();
+}
+
+
+function load_count() {
+    const xhttp = new XMLHttpRequest();
+    xhttp.onload = function() {
+        count_data = JSON.parse(this.responseText);
+        plotly_redraw();
+    }
+    url = build_url_from_form_entries('/json/count');
+    console.log('load_count url='+url);
+    xhttp.open("GET", url);
+    xhttp.send();
+}
+
+function build_url_from_form_entries(url, form_entries) {
+    elems = document.getElementById('form_search').elements;
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            if (elems[i].type != 'checkbox' || elems[i].checked) {
+                value = document.getElementById('form_search').elements[elems[i].name].value;
+                url = updateURLParameter(url, elems[i].name, value);
+            }
+        }
+    }
+    return url;
+}
+
+var data_documents = [];
+function load_documents() {
     {%for result in search_results%}
+    data_documents.push(`
     <div class=result>
         <div class=result_host>
             <!--<img src=https://{{result.host}}/favicon.ico height=12px width=12px />-->
@@ -498,33 +511,17 @@ document.getElementById('orderby').addEventListener('change', orderby_onchange);
         <div class=result_title><a href="/metahtml?url={{result.url}}">{{result.title}}</a></div>
         <div class=result_description>{{result.description}}</div>
     </div>
+    `);
     {%endfor%}
-{% endif %}
-</div>
-
-<script>
-var jsondata = [];
-
-function load_projection() {
-    const xhttp = new XMLHttpRequest();
-    xhttp.onload = function() {
-        jsondata.projection = JSON.parse(this.responseText);
-        console.log(jsondata);
-    }
-    xhttp.open("GET", "/json/projection", true);
-    xhttp.send();
 }
-load_projection();
 
-function load_count() {
-    const xhttp = new XMLHttpRequest();
-    xhttp.onload = function() {
-        jsondata.count = JSON.parse(this.responseText);
-        console.log(jsondata);
+function draw_documents() {
+    documents = document.getElementById('documents');
+    for (let i=0; i<data_documents.length; i++) {
+        documents.innerHTML += data_documents[i];
     }
-    xhttp.open("GET", "/json/count", true);
-    xhttp.send();
 }
-load_count();
+
+load_all_data();
 </script>
 {% endblock %}
