@@ -1,5 +1,5 @@
 from project import app
-from project.utils import do_query, render_template, debug_timer
+from project.utils import do_query, render_template, debug_timer, route_get
 import chajda
 import chajda.tsquery
 from flask import request
@@ -7,9 +7,19 @@ import itertools
 import logging
 import datetime
 
-def get_documents(tsquery, lang, filter_hosts, time_lo, time_hi, orderby, granularity, limit=20):
-    #if len(tsquery) == 0:
-    #    orderby = None
+@route_get('/json/docs')
+def get_docs(query='', lang='en', time_lo='1960-01-01', time_hi='2020-01-01', orderby='none', limit=20):
+    parse = chajda.tsquery.parse(lang, query)
+    tsquery = parse['tsquery']
+    try:
+        filters = list(parse['filtertree'].find_data('filter'))
+        filter_hosts = [ t.children[1] for t in filters if t.children[0] in ['site','host'] ]
+    except:
+        filter_hosts = []
+    terms = parse['terms']
+
+    if len(tsquery)<1:
+        orderby='none'
 
     sql_search = (f'''
     WITH results AS (
@@ -22,7 +32,7 @@ def get_documents(tsquery, lang, filter_hosts, time_lo, time_hi, orderby, granul
             language,
             date(timestamp_published) AS date_published,
             -- ts_rank_cd(tsv_content, :tsquery) AS rank
-            tsv_content <=> (:tsquery :: tsquery) AS rank
+            (tsv_content <=> (:tsquery :: tsquery)) :: TEXT AS rank
         FROM metahtml_view
         WHERE ( :tsquery = ''OR tsv_content @@ (:tsquery :: tsquery) )
           '''
@@ -56,7 +66,16 @@ def get_documents(tsquery, lang, filter_hosts, time_lo, time_hi, orderby, granul
         OFFSET 0
         LIMIT :limit
     )
-    SELECT * FROM (
+    SELECT 
+        id,
+        url,
+        host,
+        title,
+        description,
+        language,
+        to_char(date_published, 'YYYY-MM-DD') AS date_published,
+        rank
+    FROM (
         SELECT DISTINCT ON (title) * FROM RESULTS ORDER BY title,length(url) ASC
     ) t
         '''
@@ -78,5 +97,6 @@ def get_documents(tsquery, lang, filter_hosts, time_lo, time_hi, orderby, granul
         }
     for i,host in enumerate(filter_hosts):
         binds[f'host{i}'] = host
-    return do_query('search', sql_search, binds)
+    res = do_query('search', sql_search, binds)
+    return { 'docs': [ dict(row) for row in res ] }
 

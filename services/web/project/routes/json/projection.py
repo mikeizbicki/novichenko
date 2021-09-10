@@ -32,15 +32,8 @@ vh_hardcoded = np.load('./vectors/svd_vh_hardcoded.npy')[:,:1].T
 mat_data = np.eye(50) - (vh_data.T @ vh_data)
 mat_hardcoded = np.eye(50) - (vh_hardcoded.T @ vh_hardcoded)
 
-logging.info(f"vh_data={vh_data}")
-logging.info(f"mat_data={mat_data}")
-logging.info(f"vh_hardcoded={vh_hardcoded}")
-logging.info(f"mat_hardcoded={mat_hardcoded}")
-
-
 @route_get('/json/projection')
 def json_projection(time_lo_def='1960-01-01', time_hi_def='2020-01-01', query='', granularity='year', pos_words='war', neg_words='peace', rm_vh_hardcoded='False', rm_vh_data='False', fast='False'):
-    logging.error(f"rm_vh_hardcoded, rm_vh_data, fast={rm_vh_hardcoded, rm_vh_data, fast}")
     lang = 'en'
     parse = chajda.tsquery.parse(lang, query)
     tsquery = parse['tsquery']
@@ -51,7 +44,6 @@ def json_projection(time_lo_def='1960-01-01', time_hi_def='2020-01-01', query=''
         filter_hosts = []
     terms = parse['terms']
 
-    logging.warning('terms='+str(terms))
     return get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_words, neg_words, granularity, rm_vh_hardcoded, rm_vh_data, fast)
 
 
@@ -80,28 +72,15 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
 
     if fast=='True':
         projectionvector = default_projectionvector
-        logging.warning('projectionvector = default_projectionvector')
-        logging.warning(f'fast={fast}')
     else:
         projectionvector, badwords = chajda.embeddings.get_embedding(lang='en', max_n=100000, max_d=50, storage_dir='./embeddings').make_projectionvector(neg_words, pos_words)
-    logging.info(f"projectionvector[:20]={projectionvector[:20]}")
-    logging.info(f"neg_words, pos_words={neg_words, pos_words}")
-    logging.info(f"rm_vh_data, rm_vh_hardcoded={rm_vh_data, rm_vh_hardcoded}")
 
 
     if rm_vh_hardcoded=='True':
-        logging.warning('rm_vh_hardcoded')
         projectionvector = mat_hardcoded @ projectionvector
 
     if rm_vh_data=='True':
-        logging.warning('rm_vh_data')
         projectionvector = mat_data @ projectionvector
-    logging.info(f"projectionvector[:20]={projectionvector[:20]}")
-    logging.info(f"projectionvector.shape={projectionvector.shape}")
-    logging.info(f"mat_data.shape={mat_data.shape}")
-    #logging.info(f"mat_hardcoded.shape={mat_hardcoded.shape}")
-    #logging.info(f"np.dot(mat_data,projectionvector)={np.dot(mat_data,projectionvector)}")
-    #logging.info(f"np.dot(mat_hardcoded,projectionvector)={np.dot(mat_hardcoded,projectionvector)}")
 
     sql = (f'''
     select

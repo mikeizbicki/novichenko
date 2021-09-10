@@ -17,10 +17,10 @@ app.config.from_object('project.config.Config')
 import project.routes.host
 import project.routes.metahtml
 import project.routes.ngrams
-import project.routes.search
-import project.routes.json.wordcloud
 import project.routes.json.count
+import project.routes.json.docs
 import project.routes.json.projection
+import project.routes.json.wordcloud
 
 
 @app.route('/')
@@ -28,6 +28,10 @@ def index():
     return render_template(
         'index.html'
         )
+
+@app.route('/search')
+def search():
+    return render_template('search.html')
 
 @app.route('/wordcloud')
 def wordcloud():
