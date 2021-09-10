@@ -84,3 +84,25 @@ aside, .aside {
 h3 {
     display: none;
 }
+
+.plots {
+    height: 200px;
+}
+
+.loading {
+    position: absolute;
+    z-index: 1;
+    top:60px;
+    left:60px;
+    font-style: italic;
+}
+
+main {
+    position: relative;
+    padding-top: 10px;
+}
+
+h2 {
+    margin: 0px;
+    padding: 0px;
+}

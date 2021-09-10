@@ -9,7 +9,7 @@
 </div>
 <div class="header search box">
 <form id=form_search onsubmit='load_all_data(); return false;'>
-    <input type=text name=query />
+    <input type=text id=query name=query />
     <button type="submit"><i class="fa fa-search"></i></button>
     <select name="lang" id="lang">
       <option value="en" selected>en</option>
@@ -109,17 +109,12 @@
                 window_size = window_size_new;
                 document.getElementById('window_size_range').value = window_size;
                 document.getElementById('window_size_number').value = window_size;
-                plotly_redraw();
+                plotly_projection_redraw();
             }
             </script>
         </li>
     </ul>
 </aside>
-
-
-<div id=plotly style="grid-row-start:1; grid-row-end: 3;"></div>
-
-
 
 
 <aside style="grid-row:3">
@@ -133,19 +128,43 @@ Order by
 </select>
 </aside>
 
-<div style='display:grid; grid-column:2; grid-row:3'>
+<main style="grid-row: 1; grid-column: 2;">
+<h2>Count</h2>
+<div id=loading_count class=loading>loading...</div>
+<div id=plotly_count class=plots></div>
+</main>
 
+<main style="grid-row: 2; grid-column: 2;">
+<h2>Projection</h2>
+<div id=loading_projection class=loading>loading...</div>
+<div id=plotly_projection class=plots></div>
+</main>
+
+<main style='display:grid; grid-column:2; grid-row:3'>
 <h2>Documents</h2>
-
+<div id=loading_docs class=loading>loading...</div>
 <div id=docs>
-</div>
+</main>
+
 </div>
 
 <script>
+////////////////////////////////////////////////////////////////////////////////
+// javascript globals
+////////////////////////////////////////////////////////////////////////////////
+
 var window_size = 1;
-var count_data = null;
-var projection_data = null;
-var docs_data = [];
+var date_min = '1960-01-01';
+var date_max = '2021-09-01';
+var colors_bold = ['#55f', '#f55', '#5f5', '#ff5', '#5ff', '#f5f'];
+var colors_light = ['#ccf', '#fcc', '#cfc', '#ffc', '#cff', '#fcf'];
+var max_queries = colors_bold.length;
+
+var json_data = {
+    'count': colors_bold.map(x => null),
+    'projection': colors_bold.map(x => null),
+    'docs': [],
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // load data
@@ -158,45 +177,68 @@ function load_all_data() {
 }
 
 function load_projection() {
-    projection_data = null;
-    plotly_redraw();
+    queries = document.getElementById('query').value.split(';'); //['war', 'peace'];
 
-    const xhttp = new XMLHttpRequest();
-    xhttp.onload = function() {
-        //projection_data = JSON.parse(this.responseText);
-        projection_data = add_randoms(JSON.parse(this.responseText));
-        plotly_redraw();
+    json_data['projection'] = colors_bold.map(x => null);
+    plotly_projection_redraw();
+    document.getElementById('loading_projection').style.display = 'block';
+
+    baseurl = build_url_from_form_entries('/json/projection');
+    for (let i=0; i<queries.length; i++) {
+        url = updateURLParameter(baseurl, 'query', queries[i]);
+        console.log('load_projection url='+url);
+        const xhttp = new XMLHttpRequest();
+        xhttp.onload = function() {
+            try {
+                json_data['projection'][i] = JSON.parse(this.responseText);
+            } catch(e) {
+                alert('load_projection() failed for url='+url);
+            }
+            plotly_projection_redraw();
+            document.getElementById('loading_projection').style.display = 'none';
+        }
+        xhttp.open("GET", url);
+        xhttp.send();
     }
-    url = build_url_from_form_entries('/json/projection');
-    console.log('load_projection url='+url);
-    xhttp.open("GET", url);
-    xhttp.send();
 }
 
 
 function load_count() {
-    count_data = null;
-    plotly_redraw();
+    queries = document.getElementById('query').value.split(';'); //['war', 'peace'];
 
-    const xhttp = new XMLHttpRequest();
-    xhttp.onload = function() {
-        count_data = JSON.parse(this.responseText);
-        plotly_redraw();
+    json_data['count'] = colors_bold.map(x => null);
+    plotly_count_redraw();
+    document.getElementById('loading_count').style.display = 'block';
+
+    baseurl = build_url_from_form_entries('/json/count');
+    for (let i=0; i<queries.length; i++) {
+        url = updateURLParameter(baseurl, 'query', queries[i]);
+        console.log('load_count url='+url);
+        const xhttp = new XMLHttpRequest();
+        xhttp.onload = function() {
+            try {
+                json_data['count'][i] = JSON.parse(this.responseText);
+            } catch(e) {
+                alert('load_count() failed for url='+url);
+            }
+            plotly_count_redraw();
+            document.getElementById('loading_count').style.display = 'none';
+        }
+        xhttp.open("GET", url);
+        xhttp.send();
     }
-    url = build_url_from_form_entries('/json/count');
-    console.log('load_count url='+url);
-    xhttp.open("GET", url);
-    xhttp.send();
 }
 
 function load_docs() {
-    docs_data = [];
+    json_data['docs'] = [];
     draw_docs();
+    document.getElementById('loading_docs').style.display = 'block';
 
     const xhttp = new XMLHttpRequest();
     xhttp.onload = function() {
-        docs_data = JSON.parse(this.responseText)['docs'];
+        json_data['docs'] = JSON.parse(this.responseText)['docs'];
         draw_docs();
+        document.getElementById('loading_docs').style.display = 'none';
     }
     url = build_url_from_form_entries('/json/docs');
     console.log('load_docs url='+url);
@@ -209,177 +251,172 @@ function load_docs() {
 // render data
 ////////////////////////////////////////////////////////////////////////////////
 
-function plotly_redraw(newPlot=false) {
+var plotly_layout = {
+    showlegend: false,
+    margin:{
+        l:40,
+        r:0,
+        t:0,
+        b:20,
+        pad:0,
+    },
+    xaxis: {
+        type: 'date',
+        range: [date_min, date_max],
+        /*
+        rangeselector: {
+          buttons: [
+            {
+              count: 1,
+              label: '1y',
+              step: 'year',
+              stepmode: 'backward'
+            },
+            {
+              count: 10,
+              label: '10y',
+              step: 'year',
+              stepmode: 'backward'
+            },
+            {
+              count: 100,
+              label: '100y',
+              step: 'year',
+              stepmode: 'backward'
+            },
+            {step: 'all'}
+          ]},
+        */
+    },
+    yaxis: {
+      fixedrange: true,
+      rangemode: 'tozero',
+    },
+};
 
-    var trace_count = {
-      hovermode: 'closest',
-      hovertemplate: '',
-      type: 'scattergl',
-      line: {
-        shape: 'hv',
-        color: '#55f',
-        width: 1,
-      },
-      marker: {
-        size: 1,
-      },
-    };
+function plotly_count_redraw(newPlot=false) {
+    var traces = [];
 
-    var trace_count_lo = Object.assign({}, trace_count);
-    trace_count_lo.line = {
-        hovermode: false,
-        hovertemplate: false,
-        shape: 'hv',
-        color: '#ccf',
-        width: 1,
-      };
-
-    var trace_count_hi = Object.assign({}, trace_count_lo);
-
-    if (count_data) {
-        trace_count.x = count_data['xs'];
-        trace_count.y = count_data['term_counts'];
-        trace_count_lo.x = count_data['xs'];
-        trace_count_lo.y = count_data['term_counts_lo'];
-        trace_count_hi.x = count_data['xs'];
-        trace_count_hi.y = count_data['term_counts_hi'];
-    }
-    else {
-        trace_count.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
-        trace_count.y = [null, null];
-        trace_count_lo.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
-        trace_count_lo.y = [null, null];
-        trace_count_hi.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
-        trace_count_hi.y = [null, null];
-    }
-
-    var trace_projection_dots = {
-      xaxis: 'x2',
-      yaxis: 'y2',
-      type: 'scattergl',
-      hoverinfo: 'skip',
-      line: {
-        shape: 'hv',
-        color: '#55f',
-        width: 1,
-      },
-      mode: 'markers',
-    }
-
-    var trace_projection_ave = {
-      xaxis: 'x2',
-      yaxis: 'y2',
-      type: 'scattergl',
-      hoverinfo: 'closest',
-      line: {
-        shape: 'spline',
-        color: '#55f',
-        width: 1,
-      },
-      marker: {
-        size: 1,
-      },
-    };
-
-    if (projection_data) {
-        trace_projection_dots.x = projection_data['xs'];
-        trace_projection_dots.y = projection_data['projections'];
-        trace_projection_dots.marker = {
-            size: 2+2*Math.max(0,1-projection_data['dots']/10000)+2*Math.max(0,1-projection_data['dots']/100),
-            color: '#ccf',
+    for (let i=0; i<json_data['count'].length; i++) {
+        var trace_count = {
+          hovermode: 'closest',
+          hovertemplate: '',
+          type: 'scattergl',
+          line: {
+            shape: 'hv',
+            color: colors_bold[i],
+            width: 1,
+          },
+          marker: {
+            size: 1,
+          },
         };
-        trace_projection_ave.x = projection_data['xs'];
-        trace_projection_ave.y = moving_average([],projection_data['projections'].slice(0,projection_data['counts'].length),window_size,projection_data['counts']);
-    }
-    else {
-        trace_projection_dots.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
-        trace_projection_dots.y = [null, null];
-        trace_projection_ave.x = ['1960-01-01 00:00:00', '2022-01-01 00:00:00'];
-        trace_projection_ave.y = [null, null];
-    }
+        var trace_count_lo = Object.assign({}, trace_count);
+        trace_count_lo.line = {
+            hovermode: false,
+            hovertemplate: false,
+            shape: 'hv',
+            color: colors_light[i],
+            width: 1,
+          };
+        var trace_count_hi = Object.assign({}, trace_count_lo);
 
-    var data = [trace_count_lo, trace_count_hi, trace_count, trace_projection_dots, trace_projection_ave];
-
-    var layout = {
-        grid: {rows: 2, columns: 1},
-        showlegend: false,
-        margin:{
-            l:60,
-            r:0,
-            t:0,
-            b:0,
-            pad:0,
-        },
-        xaxis: {
-            autorange: true,
-            rangeselector: {
-              buttons: [
-                {
-                  count: 1,
-                  label: '1y',
-                  step: 'year',
-                  stepmode: 'backward'
-                },
-                {
-                  count: 10,
-                  label: '10y',
-                  step: 'year',
-                  stepmode: 'backward'
-                },
-                {
-                  count: 100,
-                  label: '100y',
-                  step: 'year',
-                  stepmode: 'backward'
-                },
-                {step: 'all'}
-              ]},
-            //rangeslider: {},
-            type: 'date'
-        },
-        xaxis2: {
-          matches: 'x',
-        },
-        yaxis: {
-          fixedrange: true,
-          rangemode: 'tozero',
-          title: {
-            text: 'count',
-            font: {
-              family: 'Courier New, monospace',
-              size: 18,
-              color: '#7f7f7f'
-            }
-          }
-        },
-        yaxis2: {
-          fixedrange: true,
-          rangemode: 'tozero',
-          title: {
-            text: 'projection',
-            font: {
-              family: 'Courier New, monospace',
-              size: 18,
-              color: '#7f7f7f'
-            }
-          }
+        if (json_data['count'][i]) {
+            trace_count.x = json_data['count'][i]['xs'];
+            trace_count.y = json_data['count'][i]['term_counts'];
+            trace_count_lo.x = json_data['count'][i]['xs'];
+            trace_count_lo.y = json_data['count'][i]['term_counts_lo'];
+            trace_count_hi.x = json_data['count'][i]['xs'];
+            trace_count_hi.y = json_data['count'][i]['term_counts_hi'];
         }
-    };
+        else {
+            trace_count.x = [date_min, date_max];
+            trace_count.y = [null, null];
+            trace_count_lo.x = [date_min, date_max];
+            trace_count_lo.y = [null, null];
+            trace_count_hi.x = [date_min, date_max];
+            trace_count_hi.y = [null, null];
+        }
+        //traces += [trace_count_lo, trace_count_hi, trace_count];
+        traces.push(trace_count_lo);
+        traces.push(trace_count_hi);
+        traces.push(trace_count);
+    }
 
     if (newPlot) {
-        Plotly.newPlot('plotly', data, layout, {displaylogo: false});
-        console.log('plotly_redraw(true)');
+        Plotly.newPlot('plotly_count', traces, plotly_layout, {displaylogo: false});
+        console.log('plotly_count_redraw(true)');
     }
     else {
-        Plotly.react('plotly', data, layout, {displaylogo: false});
-        console.log('plotly_redraw(false)');
+        Plotly.react('plotly_count', traces, plotly_layout, {displaylogo: false});
+        console.log('plotly_count_redraw(false)');
+    }
+
+}
+
+function plotly_projection_redraw(newPlot=false) {
+    var traces = [];
+
+    for (let i=0; i<json_data['count'].length; i++) {
+        var trace_projection_dots = {
+          type: 'scattergl',
+          hoverinfo: 'skip',
+          line: {
+            shape: 'hv',
+            color: '#55f',
+            width: 1,
+          },
+          mode: 'markers',
+        }
+        var trace_projection_ave = {
+          type: 'scattergl',
+          hoverinfo: 'closest',
+          line: {
+            shape: 'spline',
+            color: colors_bold[i],
+            width: 1,
+          },
+          marker: {
+            size: 1,
+          },
+        };
+
+        if (json_data['projection'][i]) {
+            trace_projection_dots.x = json_data['projection'][i]['xs'];
+            trace_projection_dots.y = json_data['projection'][i]['projections'];
+            trace_projection_dots.marker = {
+                size: 2+2*Math.max(0,1-json_data['projection'][i]['dots']/10000)+2*Math.max(0,1-json_data['projection'[i]]['dots']/100),
+                color: colors_light[i],
+            };
+            trace_projection_ave.x = json_data['projection'][i]['xs'];
+            trace_projection_ave.y = moving_average([],json_data['projection'][i]['projections'].slice(0,json_data['projection'][i]['counts'].length),window_size,json_data['projection'][i]['counts']);
+        }
+        else {
+            trace_projection_dots.x = [date_min, date_max];
+            trace_projection_dots.y = [null, null];
+            trace_projection_ave.x = [date_min, date_max];
+            trace_projection_ave.y = [null, null];
+        }
+
+        traces.push(trace_projection_dots);
+        traces.push(trace_projection_ave);
+    }
+
+    if (newPlot) {
+        Plotly.newPlot('plotly_projection', traces, plotly_layout, {displaylogo: false});
+        console.log('plotly_projection_redraw(true)');
+    }
+    else {
+        Plotly.react('plotly_projection', traces, plotly_layout, {displaylogo: false});
+        console.log('plotly_projection_redraw(false)');
     }
 };
+
 function draw_docs() {
     docs = document.getElementById('docs');
     innerHTML = '';
-    for (let i=0; i<docs_data.length; i++) {
-        doc = docs_data[i];
+    for (let i=0; i<json_data['docs'].length; i++) {
+        doc = json_data['docs'][i];
         innerHTML += `
         <div class=result>
             <div class=result_host>
@@ -468,7 +505,8 @@ function build_url_from_form_entries(url, form_entries) {
 // on page load
 ////////////////////////////////////////////////////////////////////////////////
 
-plotly_redraw(true);
+plotly_count_redraw(true);
+plotly_projection_redraw(true);
 load_all_data();
 
 // set all form elements to load data on change
