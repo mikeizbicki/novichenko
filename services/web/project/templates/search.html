@@ -9,7 +9,7 @@
 </div>
 <div class="header search box">
 <form id=form_search onsubmit='load_all_data(); return false;'>
-    <input type=text id=query name=query />
+    <input type=text id=query name=query value='' />
     <button type="submit"><i class="fa fa-search"></i></button>
     <select name="lang" id="lang">
       <option value="en" selected>en</option>
@@ -25,33 +25,36 @@
 
 {% block content %}
 <aside id=aside_xy style='grid-row: 1'>
-    <h3>Mentions Options</h3>
+    <h3>Count Options</h3>
+    <form id=form_count>
     <ul>
         <li>axis
-            <select name="mentions_axis" id="mentions_axis" form=form_search>>
+            <select name="mentions_axis" id="mentions_axis">
               <option value="host"            >host</option>
               <option value="hostpath"selected>hostpath</option>
             </select>
         </li>
         <li>granularity
-            <select name="granularity" id="granularity" form=form_search>
+            <select name="granularity" id="granularity">
               <option value="year"  selected>year</option>
               <option value="month"         >month</option>
               <option value="day"           >day</option>
             </select>
         </li>
     </ul>
+    </form>
 </aside>
 <aside id=aside_x2y2 style='grid-row:2'>
     <h3>Projection Options</h3>
+    <form id=form_projection>
     <ul>
         <li>axis
-            <select name=projection_axis id=projection_axis form=form_search>
+            <select name=projection_axis id=projection_axis>
             </select>
             <br>
-            pos words <input id=pos_words name=pos_words form=form_search readonly value="{{pos_words}}">
+            pos words <input id=pos_words name=pos_words readonly value="{{pos_words}}">
             <br>
-            neg words <input id=neg_words name=neg_words form=form_search readonly value="{{neg_words}}">
+            neg words <input id=neg_words name=neg_words readonly value="{{neg_words}}">
             <br>
             <a href='/wordcloud?pos_words={{pos_words}}&neg_words={{neg_words}}&dim=25'>visualize projection</a>
             <br>
@@ -89,14 +92,13 @@
                 set_projection_axis('sentiment');
                 function projection_axis_change(e) {
                     set_projection_axis(e.currentTarget.value);
-                    load_all_data();
                 }
                 document.getElementById('projection_axis').addEventListener('change', projection_axis_change);
             </script>
         </li>
         <li>
-            <input form=form_search type="checkbox" id="rm_vh_data" name="rm_vh_data" value="True" checked><label for="rm_vh_data">rm_vh_data</label><br>
-            <input form=form_search type="checkbox" id="rm_vh_hardcoded" name="rm_vh_hardcoded" value="True" checked><label for="rm_vh_hardcoded">rm_vh_hardcoded</label><br>
+            <input type="checkbox" id="rm_vh_data" name="rm_vh_data" value="True" checked><label for="rm_vh_data">rm_vh_data</label><br>
+            <input type="checkbox" id="rm_vh_hardcoded" name="rm_vh_hardcoded" value="True" checked><label for="rm_vh_hardcoded">rm_vh_hardcoded</label><br>
         </li>
         <li>window size 
             <br>
@@ -114,6 +116,7 @@
             </script>
         </li>
     </ul>
+    </form>
 </aside>
 
 
@@ -156,8 +159,8 @@ Order by
 var window_size = 1;
 var date_min = '1960-01-01';
 var date_max = '2021-09-01';
-var colors_bold = ['#55f', '#f55', '#5f5', '#ff5', '#5ff', '#f5f'];
-var colors_light = ['#ccf', '#fcc', '#cfc', '#ffc', '#cff', '#fcf'];
+var colors_bold = ['#55f', '#f55', '#575', '#775', '#5ff', '#f5f'];
+var colors_light = ['#ccf', '#fcc', '#c9c', '#cc9', '#cff', '#fcf'];
 var max_queries = colors_bold.length;
 
 var json_data = {
@@ -169,6 +172,9 @@ var json_data = {
 ////////////////////////////////////////////////////////////////////////////////
 // load data
 ////////////////////////////////////////////////////////////////////////////////
+
+var load_status = {};
+
 
 function load_all_data() {
     load_count();
@@ -185,15 +191,18 @@ function load_projection() {
 
     baseurl = build_url_from_form_entries('/json/projection');
     for (let i=0; i<queries.length; i++) {
+        query = queries[i];
         url = updateURLParameter(baseurl, 'query', queries[i]);
-        console.log('load_projection url='+url);
+        //console.log('load_projection url='+url);
         const xhttp = new XMLHttpRequest();
         xhttp.onload = function() {
             try {
-                json_data['projection'][i] = JSON.parse(this.responseText);
+                parsed_json = JSON.parse(this.responseText);
             } catch(e) {
                 alert('load_projection() failed for url='+url);
             }
+            json_data['projection'][i] = add_randoms(parsed_json);
+            json_data['projection'][i]['query'] = query;
             plotly_projection_redraw();
             document.getElementById('loading_projection').style.display = 'none';
         }
@@ -218,6 +227,7 @@ function load_count() {
         xhttp.onload = function() {
             try {
                 json_data['count'][i] = JSON.parse(this.responseText);
+                json_data['count'][i]['query'] = queries[i];
             } catch(e) {
                 alert('load_count() failed for url='+url);
             }
@@ -241,7 +251,7 @@ function load_docs() {
         document.getElementById('loading_docs').style.display = 'none';
     }
     url = build_url_from_form_entries('/json/docs');
-    console.log('load_docs url='+url);
+    //console.log('load_docs url='+url);
     xhttp.open("GET", url);
     xhttp.send();
 
@@ -322,10 +332,13 @@ function plotly_count_redraw(newPlot=false) {
         var trace_count_hi = Object.assign({}, trace_count_lo);
 
         if (json_data['count'][i]) {
+            trace_count.name = json_data['count'][i]['query'];
             trace_count.x = json_data['count'][i]['xs'];
             trace_count.y = json_data['count'][i]['term_counts'];
+            trace_count_lo.name = json_data['count'][i]['query'];
             trace_count_lo.x = json_data['count'][i]['xs'];
             trace_count_lo.y = json_data['count'][i]['term_counts_lo'];
+            trace_count_hi.name = json_data['count'][i]['query'];
             trace_count_hi.x = json_data['count'][i]['xs'];
             trace_count_hi.y = json_data['count'][i]['term_counts_hi'];
         }
@@ -337,7 +350,7 @@ function plotly_count_redraw(newPlot=false) {
             trace_count_hi.x = [date_min, date_max];
             trace_count_hi.y = [null, null];
         }
-        //traces += [trace_count_lo, trace_count_hi, trace_count];
+
         traces.push(trace_count_lo);
         traces.push(trace_count_hi);
         traces.push(trace_count);
@@ -367,7 +380,7 @@ function plotly_projection_redraw(newPlot=false) {
             width: 1,
           },
           mode: 'markers',
-        }
+        };
         var trace_projection_ave = {
           type: 'scattergl',
           hoverinfo: 'closest',
@@ -385,8 +398,9 @@ function plotly_projection_redraw(newPlot=false) {
             trace_projection_dots.x = json_data['projection'][i]['xs'];
             trace_projection_dots.y = json_data['projection'][i]['projections'];
             trace_projection_dots.marker = {
-                size: 2+2*Math.max(0,1-json_data['projection'][i]['dots']/10000)+2*Math.max(0,1-json_data['projection'[i]]['dots']/100),
+                size: 2+2*Math.max(0,1-json_data['projection'][i]['dots']/10000)+2*Math.max(0,1-json_data['projection'][i]['dots']/100),
                 color: colors_light[i],
+                //opacity: 0.25,
             };
             trace_projection_ave.x = json_data['projection'][i]['xs'];
             trace_projection_ave.y = moving_average([],json_data['projection'][i]['projections'].slice(0,json_data['projection'][i]['counts'].length),window_size,json_data['projection'][i]['counts']);
@@ -487,19 +501,6 @@ function add_randoms(projection_data_raw, max_points=10000.0) {
 }
 
 
-function build_url_from_form_entries(url, form_entries) {
-    elems = document.getElementById('form_search').elements;
-    for (let i=0; i<elems.length; i++) {
-        if (elems[i].name) {
-            if (elems[i].type != 'checkbox' || elems[i].checked) {
-                value = document.getElementById('form_search').elements[elems[i].name].value;
-                url = updateURLParameter(url, elems[i].name, value);
-            }
-        }
-    }
-    return url;
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // on page load
@@ -507,16 +508,57 @@ function build_url_from_form_entries(url, form_entries) {
 
 plotly_count_redraw(true);
 plotly_projection_redraw(true);
-load_all_data();
 
-// set all form elements to load data on change
-elems = document.getElementById('form_search').elements;
-for (let i=0; i<elems.length; i++) {
-    if (elems[i].name) {
-        elems[i].addEventListener('change', load_all_data);
+</script>
+
+<script>
+function build_url_from_form_entries(url, form_entries) {
+    forms = ['form_search', 'form_count', 'form_projection'];
+    /*
+    elems = [];
+    for (let i=0; i<forms.length; i++) {
+        elems = elems.concat(document.getElementById(forms[i]).elements;
     }
+    */
+    //elems = document.getElementById('form_search').elements;
+    for (let j=0; j<forms.length; j++) {
+        form = forms[j]
+        elems = document.getElementById(form).elements;
+        for (let i=0; i<elems.length; i++) {
+            if (elems[i].name) {
+                if (elems[i].type != 'checkbox' || elems[i].checked) {
+                    value = document.getElementById(form).elements[elems[i].name].value;
+                    url = updateURLParameter(url, elems[i].name, value);
+                }
+            }
+        }
+    }
+    return url;
 }
 
+function manage_form(form, change_callback) {
+    elems = document.getElementById(form).elements;
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            query_value = getParameterByName(elems[i].name);
+            if (query_value) {
+                elems[i].value = query_value;
+            }
+            elems[i].addEventListener('change', (e) => {
+                new_url = updateURLParameter(window.location.href, e.currentTarget.name, e.currentTarget.value);
+                window.history.pushState(null,'chajda.org', new_url);
+                change_callback();
+            });
+        }
+    }
+}
+window.onpopstate = function(event) {
+    window.location.reload();
+}
 
+manage_form('form_search', load_all_data);
+manage_form('form_count', load_count);
+manage_form('form_projection', load_projection);
+load_all_data();
 </script>
 {% endblock %}

@@ -12,7 +12,7 @@ body {
  ******************************************************************************/
 
 /* Style the search box inside the navigation bar */
-form {
+form#form_search {
     font-size: 1.5rem;
     padding: 0px;
     margin: 0px;
