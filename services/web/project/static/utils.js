@@ -91,20 +91,50 @@ function calc_stddev(array) {
     return Math.sqrt(array.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
 }
 
-function moving_average(xs,ys,window_size,weights) {
+function moving_average(xs,ys,window_size,weights, start_after_last_null=true, min_start_threshold=10) {
+
+    // compute the helpers
+    var last_notnull = 0;
+    for (var i=0; i<ys.length; i++) {
+        if (ys[i] !== null) {
+            last_notnull = i;
+        }
+    }
+    var last_null = 0;
+    for (var i=0; i<last_notnull; i++) {
+        if (ys[i] === null) {
+            last_null = i;
+        }
+    }
+    var min_start_threshold_i = null;
+    for (var i=last_null; i<ys.length; i++) {
+        if (min_start_threshold_i === null && weights[i] >= min_start_threshold) {
+            min_start_threshold_i = i;
+            console.log("i",i);
+            console.log("ys[i]",ys[i]);
+            console.log("weights[i]",weights[i]);
+        }
+    }
+
+    var start_i = min_start_threshold_i;
+    if (start_after_last_null && last_null > start_i) {
+        start_i = last_null;
+    }
+    console.log("last_null",last_null);
+    console.log("start_i",start_i);
+
+    // compute the actual moving average
     var ys2 = [];
     var last_ys = null;
     var average = null;
     var total = null;
-    var last_notnull = 0;
     for (var i=0; i<ys.length; i++) {
         if (ys[i] === null)
             next_ys = last_ys;
         else {
             next_ys = ys[i];
-            last_notnull = i;
         }
-        if (next_ys !== null) {
+        if (next_ys !== null && i >= start_i) {
             total = 0;
             average = 0;
             for (j=i; j>=0 && j>i-window_size; j--) {
