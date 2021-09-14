@@ -122,13 +122,15 @@
 
 <aside style="grid-row:3">
     <h3>Document Options</h3>
-Order by
-<select name="orderby" id="orderby">
-  <option value="none"      {%if orderby=="none"     %}selected{%endif%}>none</option>
-  <option value="time_desc" {%if orderby=="time_desc"%}selected{%endif%}>publication date (descending)</option>
-  <option value="time_asc"  {%if orderby=="time_asc" %}selected{%endif%}>publication date (ascending)</option>
-  <option value="rank"      {%if orderby=="rank"     %}selected{%endif%}>relevance</option>
-</select>
+    <form id=form_docs>
+        Order by
+        <select name="orderby" id="orderby">
+          <option value="none"      selected>none</option>
+          <option value="time_desc"         >publication date (descending)</option>
+          <option value="time_asc"          >publication date (ascending)</option>
+          <option value="rank"              >relevance</option>
+        </select>
+    </form>
 </aside>
 
 <main style="grid-row: 1; grid-column: 2;">
@@ -175,7 +177,6 @@ var json_data = {
 
 var load_status = {};
 
-
 function load_all_data() {
     load_count();
     load_projection();
@@ -183,31 +184,23 @@ function load_all_data() {
 }
 
 function load_projection() {
-    queries = document.getElementById('query').value.split(';'); //['war', 'peace'];
+    queries = document.getElementById('query').value.split(';');
 
     json_data['projection'] = colors_bold.map(x => null);
     plotly_projection_redraw();
     document.getElementById('loading_projection').style.display = 'block';
 
-    baseurl = build_url_from_form_entries('/json/projection');
     for (let i=0; i<queries.length; i++) {
+        dict = form_to_dict('form_projection');
         query = queries[i];
-        url = updateURLParameter(baseurl, 'query', queries[i]);
-        //console.log('load_projection url='+url);
-        const xhttp = new XMLHttpRequest();
-        xhttp.onload = function() {
-            try {
-                parsed_json = JSON.parse(this.responseText);
-            } catch(e) {
-                alert('load_projection() failed for url='+url);
-            }
-            json_data['projection'][i] = add_randoms(parsed_json);
+        dict['query'] = query;
+        console.log("dict",dict);
+        with_json('projection', dict, (json) => {
+            json_data['projection'][i] = add_randoms(json);
             json_data['projection'][i]['query'] = query;
             plotly_projection_redraw();
             document.getElementById('loading_projection').style.display = 'none';
-        }
-        xhttp.open("GET", url);
-        xhttp.send();
+        });
     }
 }
 
@@ -219,23 +212,17 @@ function load_count() {
     plotly_count_redraw();
     document.getElementById('loading_count').style.display = 'block';
 
-    baseurl = build_url_from_form_entries('/json/count');
     for (let i=0; i<queries.length; i++) {
-        url = updateURLParameter(baseurl, 'query', queries[i]);
-        console.log('load_count url='+url);
-        const xhttp = new XMLHttpRequest();
-        xhttp.onload = function() {
-            try {
-                json_data['count'][i] = JSON.parse(this.responseText);
-                json_data['count'][i]['query'] = queries[i];
-            } catch(e) {
-                alert('load_count() failed for url='+url);
-            }
+        dict = form_to_dict('form_count');
+        query = queries[i];
+        dict['query'] = query;
+        console.log("dict",dict);
+        with_json('count', dict, (json) => {
+            json_data['count'][i] = json;
+            json_data['count'][i]['query'] = query;
             plotly_count_redraw();
             document.getElementById('loading_count').style.display = 'none';
-        }
-        xhttp.open("GET", url);
-        xhttp.send();
+        });
     }
 }
 
@@ -244,6 +231,7 @@ function load_docs() {
     draw_docs();
     document.getElementById('loading_docs').style.display = 'block';
 
+    /*
     const xhttp = new XMLHttpRequest();
     xhttp.onload = function() {
         json_data['docs'] = JSON.parse(this.responseText)['docs'];
@@ -254,7 +242,17 @@ function load_docs() {
     //console.log('load_docs url='+url);
     xhttp.open("GET", url);
     xhttp.send();
+    */
 
+    dict = form_to_dict('form_docs');
+    query = document.getElementById('query').value;
+    dict['query'] = query;
+    with_json('docs', dict, (json) => {
+        console.log("json",json);
+        json_data['docs'] = json['docs'];
+        draw_docs();
+        document.getElementById('loading_docs').style.display = 'none';
+    });
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -110,9 +110,6 @@ function moving_average(xs,ys,window_size,weights, start_after_last_null=true, m
     for (var i=last_null; i<ys.length; i++) {
         if (min_start_threshold_i === null && weights[i] >= min_start_threshold) {
             min_start_threshold_i = i;
-            console.log("i",i);
-            console.log("ys[i]",ys[i]);
-            console.log("weights[i]",weights[i]);
         }
     }
 
@@ -120,8 +117,6 @@ function moving_average(xs,ys,window_size,weights, start_after_last_null=true, m
     if (start_after_last_null && last_null > start_i) {
         start_i = last_null;
     }
-    console.log("last_null",last_null);
-    console.log("start_i",start_i);
 
     // compute the actual moving average
     var ys2 = [];
@@ -152,4 +147,56 @@ function moving_average(xs,ys,window_size,weights, start_after_last_null=true, m
         ys2[i] = null;
     }
     return ys2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// JSON endpoint access/cache functions
+////////////////////////////////////////////////////////////////////////////////
+
+var json_cache = {};
+
+function with_json(endpoint, params, callback) {
+    if (!json_cache[endpoint]) {
+        json_cache[endpoint] = {};
+    }
+    params_str = JSON.stringify(params, Object.keys(params).sort());
+    if (!json_cache[endpoint][params_str]) {
+        url = '/json/'+endpoint;
+        for (let param in params) {
+            url = updateURLParameter(url, param, params[param]);
+        }
+        console.log("url",url);
+        const xhttp = new XMLHttpRequest();
+        xhttp.onload = function() {
+            try {
+                parsed_json = JSON.parse(this.responseText);
+            } catch(e) {
+                alert('load_projection() failed for url='+url);
+            }
+            json_cache[endpoint][params_str] = parsed_json;
+            json_cache[endpoint][params_str]['query'] = params['query'];
+            callback(json_cache[endpoint][params_str]);
+        }
+        xhttp.open("GET", url);
+        xhttp.send();
+    }
+    else {
+        callback(json_cache[endpoint][params_str]);
+    }
+}
+
+function form_to_dict(form_id) {
+    elems = document.getElementById(form_id).elements;
+    ret = {};
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            ret[elems[i].name] = elems[i].value;
+        }
+    }
+    return ret;
+}
+
+function serialize_form(form_id) {
+    dict = form_to_dict(form_id);
+    return JSON.stringify(dict, Object.keys(dict).sort());
 }
