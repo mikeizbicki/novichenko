@@ -8,7 +8,7 @@
 <img src='/static/en-chajda.png' width=120px height=30px>
 </div>
 <div class="header search box">
-<form id=form_search onsubmit='load_all_data(); return false;'>
+<form id=form_search onsubmit='return false;'>
     <input type=text id=query name=query value='' />
     <button type="submit"><i class="fa fa-search"></i></button>
     <select name="lang" id="lang">
@@ -26,7 +26,7 @@
 {% block content %}
 <aside id=aside_xy style='grid-row: 1'>
     <h3>Count Options</h3>
-    <form id=form_count>
+    <form id=form_count onsubmit='return false;'>
     <ul>
         <li>axis
             <select name="mentions_axis" id="mentions_axis">
@@ -41,12 +41,17 @@
               <option value="day"           >day</option>
             </select>
         </li>
+        <li>
+            <input type="checkbox" name="normalize" checked><label for="normalize">normalize</label>
+            <br/>
+            <input name="normalize_query" value="">
+        </li>
     </ul>
     </form>
 </aside>
 <aside id=aside_x2y2 style='grid-row:2'>
     <h3>Projection Options</h3>
-    <form id=form_projection>
+    <form id=form_projection onsubmit='return false;'>
     <ul>
         <li>axis
             <select name=projection_axis id=projection_axis>
@@ -122,7 +127,7 @@
 
 <aside style="grid-row:3">
     <h3>Document Options</h3>
-    <form id=form_docs>
+    <form id=form_docs onsubmit='return false;'>
         Order by
         <select name="orderby" id="orderby">
           <option value="none"      selected>none</option>
@@ -184,71 +189,95 @@ function load_all_data() {
 }
 
 function load_projection() {
-    queries = document.getElementById('query').value.split(';');
-
+    document.getElementById('loading_projection').style.display = 'block';
+    let queries = document.getElementById('query').value.split(';');
     json_data['projection'] = colors_bold.map(x => null);
     plotly_projection_redraw();
-    document.getElementById('loading_projection').style.display = 'block';
 
+    let gets = Array(queries.length);
+    form_dict = form_to_dict('form_projection');
     for (let i=0; i<queries.length; i++) {
-        dict = form_to_dict('form_projection');
-        query = queries[i];
-        dict['query'] = query;
-        console.log("dict",dict);
-        with_json('projection', dict, (json) => {
-            json_data['projection'][i] = add_randoms(json);
-            json_data['projection'][i]['query'] = query;
-            plotly_projection_redraw();
-            document.getElementById('loading_projection').style.display = 'none';
-        });
+        let query = queries[i];
+        let query_dict = Object.assign({}, form_dict);
+        query_dict['query'] = query;
+        gets[i] = {'endpoint':'projection','params':query_dict};
     }
+
+    with_jsons(gets, 'projection', (jsons) => {
+        console.log("gets",gets);
+        for (let i=0; i<queries.length; i++) {
+            json_data['projection'][i] = add_randoms(jsons[i]);
+            json_data['projection'][i]['query'] = query;
+        }
+        plotly_projection_redraw();
+        document.getElementById('loading_projection').style.display = 'none';
+    });
 }
 
 
 function load_count() {
-    queries = document.getElementById('query').value.split(';'); //['war', 'peace'];
-
+    document.getElementById('loading_count').style.display = 'block';
+    let queries = document.getElementById('query').value.split(';');
     json_data['count'] = colors_bold.map(x => null);
     plotly_count_redraw();
-    document.getElementById('loading_count').style.display = 'block';
 
+    let gets = Array(queries.length + 1);
+    let form_dict = form_to_dict('form_count');
     for (let i=0; i<queries.length; i++) {
-        dict = form_to_dict('form_count');
-        query = queries[i];
-        dict['query'] = query;
-        console.log("dict",dict);
-        with_json('count', dict, (json) => {
-            json_data['count'][i] = json;
-            json_data['count'][i]['query'] = query;
-            plotly_count_redraw();
-            document.getElementById('loading_count').style.display = 'none';
-        });
+        let query = queries[i];
+        let query_dict = Object.assign({}, form_dict);
+        query_dict['query'] = query;
+        query_dict['normalize_query'] = undefined;
+        gets[i] = {'endpoint':'count','params':query_dict};
     }
+    let norm_dict = Object.assign({}, form_dict);
+    norm_dict['query'] = form_dict['normalize_query'];
+    norm_dict['normalize_query'] = undefined;
+    let norm_index = gets.length-1
+    gets[norm_index] = {'endpoint':'count','params':norm_dict};
+        
+    with_jsons(gets, 'count', (jsons) => {
+        for (let i=0; i<queries.length; i++) {
+            let json_query = jsons[i];
+            let json_norm = jsons[norm_index];
+            json_data['count'][i] = {
+                'xs' : [],
+                'term_counts' : [],
+                'term_counts_hi' : [],
+                'term_counts_lo' : [],
+            };
+            for (let index_norm=0, index_query=0; index_norm<json_norm['xs'].length; index_norm++) {
+                if (json_norm['xs'][index_norm] == json_query['xs'][index_query]) {
+                    json_data['count'][i]['xs'].push(json_norm['xs'][index_norm]);
+                    if (form_dict['normalize']) {
+                        json_data['count'][i]['term_counts'].push(json_query['term_counts'][index_query] / json_norm['term_counts'][index_norm]);
+                        json_data['count'][i]['term_counts_hi'].push(json_query['term_counts_hi'][index_query] / json_norm['term_counts_lo'][index_norm]);
+                        json_data['count'][i]['term_counts_lo'].push(json_query['term_counts_lo'][index_query] / json_norm['term_counts_hi'][index_norm]);
+                    }
+                    else {
+                        json_data['count'][i]['term_counts'].push(json_query['term_counts'][index_query]);
+                        json_data['count'][i]['term_counts_hi'].push(json_query['term_counts_hi'][index_query]);
+                        json_data['count'][i]['term_counts_lo'].push(json_query['term_counts_lo'][index_query]);
+                    }
+                    index_query += 1;
+                }
+            }
+            json_data['count'][i]['query'] = query;
+        }
+        plotly_count_redraw();
+        document.getElementById('loading_count').style.display = 'none';
+    });
 }
 
 function load_docs() {
+    document.getElementById('loading_docs').style.display = 'block';
     json_data['docs'] = [];
     draw_docs();
-    document.getElementById('loading_docs').style.display = 'block';
-
-    /*
-    const xhttp = new XMLHttpRequest();
-    xhttp.onload = function() {
-        json_data['docs'] = JSON.parse(this.responseText)['docs'];
-        draw_docs();
-        document.getElementById('loading_docs').style.display = 'none';
-    }
-    url = build_url_from_form_entries('/json/docs');
-    //console.log('load_docs url='+url);
-    xhttp.open("GET", url);
-    xhttp.send();
-    */
 
     dict = form_to_dict('form_docs');
     query = document.getElementById('query').value;
     dict['query'] = query;
     with_json('docs', dict, (json) => {
-        console.log("json",json);
         json_data['docs'] = json['docs'];
         draw_docs();
         document.getElementById('loading_docs').style.display = 'none';
@@ -356,11 +385,9 @@ function plotly_count_redraw(newPlot=false) {
 
     if (newPlot) {
         Plotly.newPlot('plotly_count', traces, plotly_layout, {displaylogo: false});
-        console.log('plotly_count_redraw(true)');
     }
     else {
         Plotly.react('plotly_count', traces, plotly_layout, {displaylogo: false});
-        console.log('plotly_count_redraw(false)');
     }
 
 }
@@ -416,11 +443,9 @@ function plotly_projection_redraw(newPlot=false) {
 
     if (newPlot) {
         Plotly.newPlot('plotly_projection', traces, plotly_layout, {displaylogo: false});
-        console.log('plotly_projection_redraw(true)');
     }
     else {
         Plotly.react('plotly_projection', traces, plotly_layout, {displaylogo: false});
-        console.log('plotly_projection_redraw(false)');
     }
 };
 
@@ -510,31 +535,11 @@ plotly_projection_redraw(true);
 </script>
 
 <script>
-function build_url_from_form_entries(url, form_entries) {
-    forms = ['form_search', 'form_count', 'form_projection'];
-    /*
-    elems = [];
-    for (let i=0; i<forms.length; i++) {
-        elems = elems.concat(document.getElementById(forms[i]).elements;
-    }
-    */
-    //elems = document.getElementById('form_search').elements;
-    for (let j=0; j<forms.length; j++) {
-        form = forms[j]
-        elems = document.getElementById(form).elements;
-        for (let i=0; i<elems.length; i++) {
-            if (elems[i].name) {
-                if (elems[i].type != 'checkbox' || elems[i].checked) {
-                    value = document.getElementById(form).elements[elems[i].name].value;
-                    url = updateURLParameter(url, elems[i].name, value);
-                }
-            }
-        }
-    }
-    return url;
-}
+
+
 
 function manage_form(form, change_callback) {
+    set_form_defaults(form);
     elems = document.getElementById(form).elements;
     for (let i=0; i<elems.length; i++) {
         if (elems[i].name) {
@@ -544,14 +549,43 @@ function manage_form(form, change_callback) {
             }
             elems[i].addEventListener('change', (e) => {
                 new_url = updateURLParameter(window.location.href, e.currentTarget.name, e.currentTarget.value);
-                window.history.pushState(null,'chajda.org', new_url);
+                history.pushState({}, '', new_url);
+                document.title = new_url; // this is required to make the new url appear in the back button entries
                 change_callback();
             });
         }
     }
 }
+
+function set_form_defaults(form_id) {
+    elems = document.getElementById(form_id).elements;
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            elems[i].value_default = elems[i].value;
+        }
+    }
+}
+
+function reset_form(form_id) {
+    elems = document.getElementById(form_id).elements;
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            querystr_value = getParameterByName(elems[i].name);
+            if (querystr_value) {
+                elems[i].value = querystr_value;
+            }
+            else {
+                elems[i].value = elems[i].value_default;
+            }
+        }
+    }
+}
+
 window.onpopstate = function(event) {
-    window.location.reload();
+    reset_form('form_search');
+    reset_form('form_count');
+    reset_form('form_projection');
+    load_all_data();
 }
 
 manage_form('form_search', load_all_data);

@@ -154,27 +154,50 @@ function moving_average(xs,ys,window_size,weights, start_after_last_null=true, m
 ////////////////////////////////////////////////////////////////////////////////
 
 var json_cache = {};
+var semaphore_times = {};
+
+function with_jsons(gets, semaphore, callback) {
+    let start_time = Date.now();
+    if (semaphore) {
+        semaphore_times[semaphore] = start_time;
+    }
+
+    let loaded_jsons = Array(gets.length);
+    let num_loaded_jsons = 0;
+    for (let i=0; i<gets.length; i++) {
+        with_json(gets[i]['endpoint'], gets[i]['params'], (json) => {
+            if (semaphore && start_time < semaphore_times[semaphore]) {
+                console.log('with_jsons(semaphore="'+semaphore+'") blocked for being stale; gets=',gets);
+            }
+            else {
+                loaded_jsons[i] = json;
+                num_loaded_jsons += 1;
+                if (num_loaded_jsons == loaded_jsons.length) {
+                    callback(loaded_jsons);
+                }
+            }
+        });
+    }
+}
 
 function with_json(endpoint, params, callback) {
     if (!json_cache[endpoint]) {
         json_cache[endpoint] = {};
     }
-    params_str = JSON.stringify(params, Object.keys(params).sort());
+    let params_str = JSON.stringify(params, Object.keys(params).sort());
     if (!json_cache[endpoint][params_str]) {
-        url = '/json/'+endpoint;
+        let url = '/json/'+endpoint;
         for (let param in params) {
             url = updateURLParameter(url, param, params[param]);
         }
-        console.log("url",url);
         const xhttp = new XMLHttpRequest();
         xhttp.onload = function() {
             try {
-                parsed_json = JSON.parse(this.responseText);
+                let parsed_json = JSON.parse(this.responseText);
+                json_cache[endpoint][params_str] = parsed_json;
             } catch(e) {
                 alert('load_projection() failed for url='+url);
             }
-            json_cache[endpoint][params_str] = parsed_json;
-            json_cache[endpoint][params_str]['query'] = params['query'];
             callback(json_cache[endpoint][params_str]);
         }
         xhttp.open("GET", url);
@@ -186,17 +209,22 @@ function with_json(endpoint, params, callback) {
 }
 
 function form_to_dict(form_id) {
-    elems = document.getElementById(form_id).elements;
-    ret = {};
+    let elems = document.getElementById(form_id).elements;
+    let ret = {};
     for (let i=0; i<elems.length; i++) {
         if (elems[i].name) {
-            ret[elems[i].name] = elems[i].value;
+            if (elems[i].type && elems[i].type == 'checkbox') {
+                ret[elems[i].name] = elems[i].checked;
+            }
+            else {
+                ret[elems[i].name] = elems[i].value;
+            }
         }
     }
     return ret;
 }
 
 function serialize_form(form_id) {
-    dict = form_to_dict(form_id);
+    let dict = form_to_dict(form_id);
     return JSON.stringify(dict, Object.keys(dict).sort());
 }
