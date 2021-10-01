@@ -39,3 +39,7 @@ RUN chown -R app $HOME \
 # do not change to the app user;
 # need root permission to write to mapped volumes
 # USER app
+
+# this puts the container into a perpetual "run" state that never terminates;
+# commands should be run on the container via `docker exec`
+ENTRYPOINT ["tail", "-f", "/dev/null"]

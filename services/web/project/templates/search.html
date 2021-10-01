@@ -74,13 +74,33 @@
                     'life': ['alive active awake living', 'dead inactive asleep dying'],
                     'freedom': ['oppression', 'freedom'],
                     'scary': ['relaxing unafraid comfort','scary afraid fear'], 
+                    'science': ['science', 'religion'],
+
+                    // emotions: good-bad, funny-sad, happy-sad, happy-angry, scary-relaxing, sexy-unsexy, erotic-unerotic
+                    // threat: friend-enemy, war-peace, truth-lie, oppression-freedom, safety-danger
+                    // ? male-female, alive-dead, intelligent-stupid, fake-real, primitive-advanced, strong-weak, hot-cold, big-small, health-unhealthy, military-civilian
+
+                    // culture: music, film, books, games
+                    // policy-education, healthcare, politics, voting, immigration, crime
+                    // math-topology, geometry, analysis, algebra
+                    // religion: christianity, islam, budhism
+                    // 'science-biology': ['biology'], chemistry, physics, medicine, engineering, sociology, psychology
+                    // 'technology-email': ['email'], email, computer, internet, spaceship
+                    // transportation-car, train, airplane, boat, walking, bike
+                    // sports-baseball, basketball, soccer, football
+                    // military: army, navy, marines, wmd, gun, terrorism
+                    // ? fuck, drugs, illness
+
                     'sentiment': ['positive good better best', 'negative bad worse worst'], 
+                    'sentiment2': ['good', 'bad'], 
                     'success': ['successful', 'failed'],
                     'threat': ['safety peace friend ally', 'danger war menace enemy'],
                     'truth': ['truth', 'lie'],
                     'war': ['peace', 'war'],
+                    'war2': ['army', 'navy'],
                     'wealth': ['wealth affluence rich asset', 'debt poverty poor liability'],
                 };
+                axis_dictionary = {{ fancycontexts |safe}};
                 projection_axis = getParameterByName('projection_axis');
                 select = document.getElementById('projection_axis')
                 for (key in axis_dictionary) {
@@ -90,11 +110,12 @@
                     select.add(option);
                 }
                 function set_projection_axis(axis) {
+                    console.log("axis",axis);
                     document.getElementById('projection_axis').value = axis;
                     document.getElementById('pos_words').value = axis_dictionary[axis][0];
                     document.getElementById('neg_words').value = axis_dictionary[axis][1];
                 }
-                set_projection_axis('sentiment');
+                set_projection_axis('distance-culture-books');
                 function projection_axis_change(e) {
                     set_projection_axis(e.currentTarget.value);
                 }
@@ -128,13 +149,27 @@
 <aside style="grid-row:3">
     <h3>Document Options</h3>
     <form id=form_docs onsubmit='return false;'>
-        Order by
-        <select name="orderby" id="orderby">
-          <option value="none"      selected>none</option>
-          <option value="time_desc"         >publication date (descending)</option>
-          <option value="time_asc"          >publication date (ascending)</option>
-          <option value="rank"              >relevance</option>
-        </select>
+        <ul>
+            <li>
+                Order by
+                <select name="orderby" id="orderby">
+                  <option value="none"      selected>none</option>
+                  <option value="time_desc"         >publication date (descending)</option>
+                  <option value="time_asc"          >publication date (ascending)</option>
+                  <option value="rank"              >relevance</option>
+                </select>
+            </li>
+            <li>time_lo <input id=time_lo name=time_lo value='1960-01-01' onchange='reset_plotly_axes();'></li>
+            <li>time_hi <input id=time_hi name=time_hi value='2022-01-01' onchange='reset_plotly_axes();'></li>
+            <script>
+            function reset_plotly_axes() {
+                plotly_layout['xaxis']['range'] = [document.getElementById('time_lo').value, document.getElementById('time_hi').value],
+                plotly_count_redraw();
+                plotly_projection_redraw();
+                load_docs();
+            }
+            </script>
+        </ul>
     </form>
 </aside>
 
@@ -158,14 +193,106 @@
 
 </div>
 
+
+<script>
+function link_form_to_query_params(form) {
+    set_form_defaults(form);
+    elems = document.getElementById(form).elements;
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            query_value = getParameterByName(elems[i].name);
+            if (query_value) {
+                set_tag_value(elems[i], query_value);
+            }
+        }
+    }
+}
+
+function set_form_callback(form, change_callback) {
+    set_form_defaults(form);
+    elems = document.getElementById(form).elements;
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            elems[i].addEventListener('change', (e) => {
+                update_value = get_tag_value(e.currentTarget);
+                new_url = updateURLParameter(window.location.href, e.currentTarget.name, update_value);
+                history.pushState({}, '', new_url);
+                document.title = new_url; // this is required to make the new url appear in the back button entries
+                change_callback();
+            });
+        }
+    }
+}
+
+function get_tag_value(tag) {
+    if (tag.type && tag.type == 'checkbox') {
+        return tag.checked;
+    }
+    else {
+        return tag.value;
+    }
+}
+
+function set_tag_value(tag, value) {
+    if (tag.type && tag.type == 'checkbox') {
+        if (value && value.toLowerCase() != 'false') {
+            tag.checked = true;
+        }
+        else {
+            tag.checked = false;
+        }
+    }
+    else {
+        tag.value = value;
+    }
+}
+
+function set_form_defaults(form_id) {
+    elems = document.getElementById(form_id).elements;
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            elems[i].value_default = get_tag_value(elems[i]);
+        }
+    }
+}
+
+function reset_form(form_id) {
+    elems = document.getElementById(form_id).elements;
+    for (let i=0; i<elems.length; i++) {
+        if (elems[i].name) {
+            querystr_value = getParameterByName(elems[i].name);
+            if (querystr_value) {
+                set_tag_value(elems[i].value, querystr_value);
+            }
+            else {
+                set_tag_value(elems[i].value, elems[i].value_default);
+            }
+        }
+    }
+}
+
+window.onpopstate = function(event) {
+    reset_form('form_search');
+    reset_form('form_count');
+    reset_form('form_projection');
+    reset_form('form_docs');
+    load_all_data();
+}
+
+link_form_to_query_params('form_search');
+link_form_to_query_params('form_count');
+link_form_to_query_params('form_projection');
+link_form_to_query_params('form_docs');
+</script>
+
 <script>
 ////////////////////////////////////////////////////////////////////////////////
 // javascript globals
 ////////////////////////////////////////////////////////////////////////////////
 
 var window_size = 1;
-var date_min = '1960-01-01';
-var date_max = '2021-09-01';
+var date_min = document.getElementById('time_lo').value;
+var date_max = document.getElementById('time_hi').value;
 var colors_bold = ['#55f', '#f55', '#575', '#775', '#5ff', '#f5f'];
 var colors_light = ['#ccf', '#fcc', '#c9c', '#cc9', '#cff', '#fcf'];
 var max_queries = colors_bold.length;
@@ -203,8 +330,7 @@ function load_projection() {
         gets[i] = {'endpoint':'projection','params':query_dict};
     }
 
-    with_jsons(gets, 'projection', (jsons) => {
-        console.log("gets",gets);
+    with_jsons(gets, 'load_projection', (jsons) => {
         for (let i=0; i<queries.length; i++) {
             json_data['projection'][i] = add_randoms(jsons[i]);
             json_data['projection'][i]['query'] = query;
@@ -236,7 +362,7 @@ function load_count() {
     let norm_index = gets.length-1
     gets[norm_index] = {'endpoint':'count','params':norm_dict};
         
-    with_jsons(gets, 'count', (jsons) => {
+    with_jsons(gets, 'load_count', (jsons) => {
         for (let i=0; i<queries.length; i++) {
             let json_query = jsons[i];
             let json_norm = jsons[norm_index];
@@ -277,8 +403,8 @@ function load_docs() {
     dict = form_to_dict('form_docs');
     query = document.getElementById('query').value;
     dict['query'] = query;
-    with_json('docs', dict, (json) => {
-        json_data['docs'] = json['docs'];
+    with_jsons([{'endpoint':'docs', 'params':dict}], 'load_docs', (json) => {
+        json_data['docs'] = json[0]['docs'];
         draw_docs();
         document.getElementById('loading_docs').style.display = 'none';
     });
@@ -326,6 +452,7 @@ var plotly_layout = {
         */
     },
     yaxis: {
+      autorange: true,
       fixedrange: true,
       rangemode: 'tozero',
     },
@@ -385,6 +512,7 @@ function plotly_count_redraw(newPlot=false) {
 
     if (newPlot) {
         Plotly.newPlot('plotly_count', traces, plotly_layout, {displaylogo: false});
+        document.getElementById('plotly_count').on('plotly_relayout',plotly_axis_trigger);
     }
     else {
         Plotly.react('plotly_count', traces, plotly_layout, {displaylogo: false});
@@ -443,11 +571,27 @@ function plotly_projection_redraw(newPlot=false) {
 
     if (newPlot) {
         Plotly.newPlot('plotly_projection', traces, plotly_layout, {displaylogo: false});
+        document.getElementById('plotly_projection').on('plotly_relayout',plotly_axis_trigger);
     }
     else {
         Plotly.react('plotly_projection', traces, plotly_layout, {displaylogo: false});
     }
 };
+
+
+function plotly_axis_trigger(e) {
+    if (e['xaxis.range[0]']) { time_lo_old = new Date(e['xaxis.range[0]']); } else { time_lo_old = new Date(1960, 0, 1); }
+    if (e['xaxis.range[1]']) { time_hi_old = new Date(e['xaxis.range[1]']); } else { time_hi_old = new Date(2022, 0, 1); }
+    time_lo_new = new Date(time_lo_old.getFullYear(), 0, 1);
+    time_hi_new = new Date(time_hi_old.getFullYear(), 0, 1);
+    time_lo = time_lo_new.toISOString().split('T')[0];
+    time_hi = time_hi_new.toISOString().split('T')[0];
+    document.getElementById('time_lo').value = time_lo;
+    document.getElementById('time_lo').dispatchEvent(new Event('change'));
+    document.getElementById('time_hi').value = time_hi;
+    document.getElementById('time_hi').dispatchEvent(new Event('change'));
+}
+
 
 function draw_docs() {
     docs = document.getElementById('docs');
@@ -535,62 +679,11 @@ plotly_projection_redraw(true);
 </script>
 
 <script>
-
-
-
-function manage_form(form, change_callback) {
-    set_form_defaults(form);
-    elems = document.getElementById(form).elements;
-    for (let i=0; i<elems.length; i++) {
-        if (elems[i].name) {
-            query_value = getParameterByName(elems[i].name);
-            if (query_value) {
-                elems[i].value = query_value;
-            }
-            elems[i].addEventListener('change', (e) => {
-                new_url = updateURLParameter(window.location.href, e.currentTarget.name, e.currentTarget.value);
-                history.pushState({}, '', new_url);
-                document.title = new_url; // this is required to make the new url appear in the back button entries
-                change_callback();
-            });
-        }
-    }
-}
-
-function set_form_defaults(form_id) {
-    elems = document.getElementById(form_id).elements;
-    for (let i=0; i<elems.length; i++) {
-        if (elems[i].name) {
-            elems[i].value_default = elems[i].value;
-        }
-    }
-}
-
-function reset_form(form_id) {
-    elems = document.getElementById(form_id).elements;
-    for (let i=0; i<elems.length; i++) {
-        if (elems[i].name) {
-            querystr_value = getParameterByName(elems[i].name);
-            if (querystr_value) {
-                elems[i].value = querystr_value;
-            }
-            else {
-                elems[i].value = elems[i].value_default;
-            }
-        }
-    }
-}
-
-window.onpopstate = function(event) {
-    reset_form('form_search');
-    reset_form('form_count');
-    reset_form('form_projection');
-    load_all_data();
-}
-
-manage_form('form_search', load_all_data);
-manage_form('form_count', load_count);
-manage_form('form_projection', load_projection);
+set_form_callback('form_search', load_all_data);
+set_form_callback('form_count', load_count);
+set_form_callback('form_projection', load_projection);
+set_form_callback('form_docs', load_docs);
 load_all_data();
 </script>
+
 {% endblock %}

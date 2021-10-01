@@ -2,6 +2,7 @@ from project import app
 from project.utils import do_query, render_template, debug_timer, route_get
 import chajda
 import chajda.tsquery
+import chajda.embeddings
 from flask import request
 import itertools
 import logging
@@ -33,7 +34,7 @@ mat_data = np.eye(50) - (vh_data.T @ vh_data)
 mat_hardcoded = np.eye(50) - (vh_hardcoded.T @ vh_hardcoded)
 
 @route_get('/json/projection')
-def json_projection(time_lo_def='1960-01-01', time_hi_def='2020-01-01', query='', granularity='year', pos_words='war', neg_words='peace', rm_vh_hardcoded='False', rm_vh_data='False', fast='False'):
+def json_projection(time_lo_def='1960-01-01', time_hi_def='2020-01-01', query='', granularity='year', projection_axis='projection-threat-war1', pos_words='war', neg_words='peace', rm_vh_hardcoded='False', rm_vh_data='False', fast='False'):
     lang = 'en'
     parse = chajda.tsquery.parse(lang, query)
     tsquery = parse['tsquery']
@@ -44,10 +45,10 @@ def json_projection(time_lo_def='1960-01-01', time_hi_def='2020-01-01', query=''
         filter_hosts = []
     terms = parse['terms']
 
-    return get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_words, neg_words, granularity, rm_vh_hardcoded, rm_vh_data, fast)
+    return get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, projection_axis, pos_words, neg_words, granularity, rm_vh_hardcoded, rm_vh_data, fast)
 
 
-def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_words, neg_words, granularity, rm_vh_hardcoded, rm_vh_data, fast=False):
+def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, projection_axis, pos_words, neg_words, granularity, rm_vh_hardcoded, rm_vh_data, fast=False):
     '''
     FIXME:
     does not support OR or NOT clause
@@ -70,17 +71,27 @@ def get_projection(time_lo_def, time_hi_def, terms, lang, filter_hosts, pos_word
         clause_focus = 'and "contextvector.focus" = :focus'
 
 
-    if fast=='True':
-        projectionvector = default_projectionvector
+    if True: 
+        projectionvector = []
+        for fancycontext in chajda.embeddings.fancycontexts:
+            if fancycontext.name == projection_axis:
+                projectionvector.append(-1)
+            else:
+                projectionvector.append(0)
+        projectionvector = np.array(projectionvector)
+
+    # these are for non-fancycontext
     else:
-        projectionvector, badwords = chajda.embeddings.get_embedding(lang='en', max_n=100000, max_d=50, storage_dir='./embeddings').make_projectionvector(neg_words, pos_words)
+        if fast=='True':
+            projectionvector = default_projectionvector
+        else:
+            projectionvector, badwords = chajda.embeddings.get_embedding(lang='en', max_n=100000, max_d=50, storage_dir='./embeddings').make_projectionvector(neg_words, pos_words)
 
+        if rm_vh_hardcoded.lower()=='true':
+            projectionvector = mat_hardcoded @ projectionvector
 
-    if rm_vh_hardcoded=='True':
-        projectionvector = mat_hardcoded @ projectionvector
-
-    if rm_vh_data=='True':
-        projectionvector = mat_data @ projectionvector
+        if rm_vh_data.lower()=='true':
+            projectionvector = mat_data @ projectionvector
 
     sql = (f'''
     select

@@ -1554,7 +1554,7 @@ UPDATE pgrollup_settings SET value='1000000' WHERE name='cron_block_size';
 
 CREATE TABLE contextvector (
     id BIGSERIAL NOT NULL,
-    context vector(50),
+    context vector(80),
     timestamp_published TIMESTAMPTZ NOT NULL,
     count bigint,  -- FIXME: we could use smallint here and save some space, we just need to cast the rollups to int/bigint to avoid overflow
     host_surt TEXT,

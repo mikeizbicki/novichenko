@@ -343,7 +343,7 @@ def bulk_insert(connection, id_source, batch):
                 'tsv_content': tsv_content,
                 'links': links,
                 })
-            embedding = chajda.embeddings.get_embedding(lang=lang_iso, max_n=100000, max_d=50, storage_dir='./embeddings')
+            embedding = chajda.embeddings.get_embedding(lang=lang_iso, max_n=100000, max_d=300, storage_dir='./embeddings')
             #wordcontexts = chajda.tsvector.tsvector_to_wordcontext(tsv_content, n=2, windowsize=10)
             #wordcontexts_mod = defaultdict(lambda: [])
             #for focus,context,count in wordcontexts:

@@ -31,7 +31,9 @@ def index():
 
 @app.route('/search')
 def search():
-    return render_template('search.html')
+    import chajda.embeddings
+    fancycontexts = { fancycontext.name: [' '.join(fancycontext.pos_words), ' '.join(fancycontext.neg_words)] for fancycontext in chajda.embeddings.fancycontexts }
+    return render_template('search.html', fancycontexts = fancycontexts)
 
 @app.route('/wordcloud')
 def wordcloud():

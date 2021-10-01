@@ -60,7 +60,8 @@ def make_wordcloud(pos_words, neg_words, seed_words, lang_in='en', lang_out='en'
     logging.info(f'lang_in={lang_in}; lang_out={lang_out}')
     embedding_out = chajda.embeddings.get_embedding(lang=lang_out, max_n=100000, max_d=dim, storage_dir='./embeddings')
     embedding_in = chajda.embeddings.get_embedding(lang=lang_in, max_n=100000, max_d=dim, storage_dir='./embeddings')
-    projectionvector, unknown_words = embedding_in.make_projectionvector(pos_words, neg_words)
+    #projectionvector, unknown_words = embedding_in.make_projectionvector(pos_words, neg_words)
+    projector, unknown_words = embedding_in.make_projector(pos_words, neg_words)
 
     def words_to_points(words):
         points = []
@@ -72,15 +73,17 @@ def make_wordcloud(pos_words, neg_words, seed_words, lang_in='en', lang_out='en'
         return points
 
     # compute the angle between the positive and negative words
-    pos_point = mean(words_to_points(set(pos_words)))
-    neg_point = mean(words_to_points(set(neg_words)))
-    angle = float(np.arccos(np.dot(pos_point,neg_point)/np.linalg.norm(pos_point)/np.linalg.norm(neg_point)))/math.pi*180
+    if neg_words:
+        pos_point = mean(words_to_points(set(pos_words)))
+        neg_point = mean(words_to_points(set(neg_words)))
+        angle = float(np.arccos(np.dot(pos_point,neg_point)/np.linalg.norm(pos_point)/np.linalg.norm(neg_point)))/math.pi*180
+    else:
+        angle = 0.0
 
     # targets are the points in the space that represent our concepts
     target_words = set(pos_words + neg_words)
     target_points = words_to_points(target_words)
     target_mean = mean(target_points)
-    distance_modifier = mean([cosine_distance(target_mean, point) for point in target_points])
     if len(target_points) > 1:
         target_points += target_mean
 
@@ -102,14 +105,15 @@ def make_wordcloud(pos_words, neg_words, seed_words, lang_in='en', lang_out='en'
     for word in plot_words:
         try:
             # compute distance
-            distance = mean([cosine_distance(embedding_out.kv[word], point) for point in target_points]) - distance_modifier
+            distance = mean([cosine_distance(embedding_out.kv[word], point) for point in target_points])
 
             # add the result
             # NOTE:
             # np.float32 is not serializable to json, so convert to python float
             results.append({
                 'text': word,
-                'projection': float(np.dot(projectionvector, embedding_out.kv[word])),
+                'projection': projector(word),
+                #'projection': float(np.dot(projectionvector, embedding_out.kv[word])),
                 #'projection': float(np.dot(projectionvector, embedding.kv[word]/np.linalg.norm(embedding.kv[word]))),
                 'frequency': embedding_out.word_frequency(word),
                 'distance': float(distance)

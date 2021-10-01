@@ -90,70 +90,95 @@
 <div style="margin:20;">
     Angle: <span id=angle></span>
 </div>
-<div id=wordcloud></div>
+<div id=words width=100%>
+    <div id=wordcloud></div>
+    <div id=wordlist>
+    </div>
+</div>
 </main>
 <script>
 var wordcloud_data = null;
+
+function draw_wordcloud() {
+    clip = parseFloat(getParameterByName('clip'));
+    div = parseFloat(getParameterByName('div'));
+    a = parseFloat(getParameterByName('a'));
+    let ys = [];
+    for (let i=0; i<wordcloud_data.projection.length; i++) {
+        //frequency_modification = wordcloud_data.projection[i]*(1-wordcloud_data.frequency[i])**a;
+        f = wordcloud_data.frequency[i];
+        d = wordcloud_data.distance[i];
+        y = wordcloud_data.projection[i];
+        if (div) {
+            y /= d + div;
+        }
+        if (a) {
+            y = y*(a/(a + f));
+        }
+        if (clip && d > clip) {
+            y = 0;
+        }
+        ys.push(y);
+    }
+
+    // table
+    let tableHTML = '';
+    tableHTML = '<table>';
+    tableHTML += '<tr><th>text</th><th>projection</th><th>distance</th><th>frequency</th></tr>';
+    for (let i=0; i<wordcloud_data.projection.length; i++) {
+        tableHTML += '<tr>';
+        tableHTML += '<td>' + wordcloud_data.text[i] + '</td>';
+        tableHTML += '<td align=right>' + wordcloud_data.projection[i].toFixed(4) + '</td>';
+        tableHTML += '<td align=right>' + wordcloud_data.distance[i].toFixed(4) + '</td>';
+        tableHTML += '<td align=right>' + wordcloud_data.frequency[i].toExponential(2) + '</td>';
+        tableHTML += '</tr>';
+    }
+    tableHTML += '</table>';
+    document.getElementById("wordlist").innerHTML = tableHTML;
+
+    // plotly
+    var trace1 = {
+        x: wordcloud_data.frequency,
+        y: ys,
+        distance: wordcloud_data.distance,
+        text: wordcloud_data.text,
+        marker: { size: wordcloud_data.distance, sizeref:4000, sizemode:'area' },
+        hovertemplate: '%{text} dist=%{marker.size:}',
+        mode: 'markers+text',
+        type: 'scatter',
+    }
+    var layout = {
+        height: 0.75*window.innerHeight,
+        width: 0.95*window.innerWidth,
+        showlegend: false,
+        //margin: {pad: 0},
+        margin:{
+            l:50,
+            r:0,
+            t:0,
+            b:50,
+            pad:0,
+        },
+        xaxis: {
+            autorange: true,
+            showticklabels: true,
+            tickformat: ".1e",
+            type: 'log',
+        },
+        yaxis: {
+            autorange: true,
+        },
+        config: { responsive: true }
+    };
+    Plotly.newPlot('wordcloud',[trace1], layout);
+    document.getElementById("angle").innerHTML = wordcloud_data['angle'].toFixed(2) ;
+}
+
 function load_wordcloud() {
     const xhttp = new XMLHttpRequest();
     xhttp.onload = function() {
         wordcloud_data = JSON.parse(this.responseText);
-        clip = parseFloat(getParameterByName('clip'));
-        div = parseFloat(getParameterByName('div'));
-        a = parseFloat(getParameterByName('a'));
-        let ys = [];
-        for (let i=0; i<wordcloud_data.projection.length; i++) {
-            //frequency_modification = wordcloud_data.projection[i]*(1-wordcloud_data.frequency[i])**a;
-            f = wordcloud_data.frequency[i];
-            d = wordcloud_data.distance[i];
-            y = wordcloud_data.projection[i];
-            if (div) {
-                y /= d + div;
-            }
-            if (a) {
-                y = y*(a/(a + f));
-            }
-            if (clip && d > clip) {
-                y = 0;
-            }
-            ys.push(y);
-        }
-
-        var trace1 = {
-            x: wordcloud_data.frequency,
-            y: ys,
-            distance: wordcloud_data.distance,
-            text: wordcloud_data.text,
-            marker: { size: wordcloud_data.distance, sizeref:4000, sizemode:'area' },
-            hovertemplate: '%{text} dist=%{marker.size:}',
-            mode: 'markers+text',
-            type: 'scatter',
-        }
-        var layout = {
-            height: 0.75*window.innerHeight,
-            width: 0.95*window.innerWidth,
-            showlegend: false,
-            //margin: {pad: 0},
-            margin:{
-                l:50,
-                r:0,
-                t:0,
-                b:50,
-                pad:0,
-            },
-            xaxis: {
-                autorange: true,
-                showticklabels: true,
-                tickformat: ".1e",
-                type: 'log',
-            },
-            yaxis: {
-                autorange: true,
-            },
-            config: { responsive: true }
-        };
-        Plotly.newPlot('wordcloud',[trace1], layout);
-        document.getElementById("angle").innerHTML = wordcloud_data['angle'].toFixed(2) ;
+        draw_wordcloud();
     }
     pos_words = getParameterByName('pos_words');
     neg_words = getParameterByName('neg_words');
@@ -176,5 +201,6 @@ function load_wordcloud() {
     xhttp.send();
 }
 load_wordcloud();
+
 </script>
 {% endblock %}
