@@ -21,6 +21,8 @@ import project.routes.json.count
 import project.routes.json.docs
 import project.routes.json.projection
 import project.routes.json.wordcloud
+import project.routes.json.wordcircle
+import project.routes.json.wordvis
 
 
 @app.route('/')
@@ -39,6 +41,13 @@ def search():
 def wordcloud():
     return render_template('wordcloud.html')
     
+@app.route('/wordcircle')
+def wordcircle():
+    return render_template('wordcircle.html')
+
+@app.route('/wordvis')
+def wordvis():
+    return render_template('wordvis.html')
 
 @app.route("/static/<path:filename>")
 def staticfiles(filename):

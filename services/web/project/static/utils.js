@@ -84,11 +84,36 @@ function updateURLParameter(url, param, paramVal)
 // math functions
 ////////////////////////////////////////////////////////////////////////////////
 
+function calc_median(numbers) {
+    const sorted = numbers.slice().sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+
+    if (sorted.length % 2 === 0) {
+        return (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+    return sorted[middle];
+}
+
+
 function calc_stddev(array) {
     if (!array || array.length === 0) {return 0;}
     const n = array.length
     const mean = array.reduce((a, b) => a + b) / n
     return Math.sqrt(array.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
+}
+
+function quantile(arr_in, q) {
+    const arr = arr_in.slice();
+    const asc = arr => arr.sort((a, b) => a - b);
+    const sorted = asc(arr);
+    const pos = (sorted.length - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    if (sorted[base + 1] !== undefined) {
+        return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+    } else {
+        return sorted[base];
+    }
 }
 
 function moving_average(xs,ys,window_size,weights, start_after_last_null=true, min_start_threshold=10) {

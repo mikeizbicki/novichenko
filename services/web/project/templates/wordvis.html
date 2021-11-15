@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+
+{% block header %}
+<header class=grid>
+        <div class="header logo">
+        <img src='/static/en-chajda.png' width=120px height=30px>
+        </div>
+        <div style='display:grid; grid-column:2/5' width=100%>
+        <form id=form_search action='/wordvis' method='get' style="display: flex; align-items: center; margin-top: 8; font-size: 1rem;">
+            <table>
+                <tr>
+                    <td>words</td>
+                    <td>lang_in</td>
+                    <td>lang_out</td>
+                    <td>dim</td>
+                    <td>a</td>
+                    <td>clip</td>
+                    <td>n</td>
+                    <td>n_rand</td>
+                    <td>n_top</td>
+                    <td>graph</td>
+                </tr>
+                <tr>
+                    <td><input type=text id=words name=words style='min-width:400px;'/></td>
+                    <td>
+                    <select name="lang_in" id="lang_in" style='min-width: 100px;'>
+                    </select>
+                    </td>
+                    <td>
+                    <select name="lang_out" id="lang_out" style='min-width: 100px;'>
+                    </select>
+    <script>
+        var langs=['ar','de','el','en','es','fr','ko','pt','ru','sv','th','zh'];
+        lang_in = document.getElementById('lang_in')
+        lang_out = document.getElementById('lang_out')
+        for (let i=0; i<langs.length; i++) {
+            let lang=langs[i];
+            let option1 = document.createElement("option");
+            option1.textContent = lang;
+            option1.value = lang;
+            lang_in.add(option1);
+            let option2 = document.createElement("option");
+            option2.textContent = lang;
+            option2.value = lang;
+            lang_out.add(option2);
+        }
+    </script>
+                    </td>
+                    <td>
+                    <select name="dim" id="dim" style='min-width: 100px;'>
+                      <option value="25" default>25</option>
+                      <option value="50" >50</option>
+                      <option value="100" >100</option>
+                      <option value="200" >200</option>
+                      <option value="300" >300</option>
+                    </select>
+                    </td>
+                    <td><input style='max-width:80px' id=a name=a /></td>
+                    <td><input style='max-width:80px' id=clip name=clip /></td>
+                    <td><input style='max-width:80px' id=n name=n /></td>
+                    <td><input style='max-width:80px' id=n_rand name=n_rand /></td>
+                    <td><input style='max-width:80px' id=n_top name=n_top /></td>
+                    <td>
+                    <select name="graph" id="graph" style='min-width: 80px;'>
+                      <option value="freq" default>freq</option>
+                      <option value="2d" >2d</option>
+                      <option value="2d-hist" >2d-hist</option>
+                      <option value="3d" >3d</option>
+                    </select>
+                    </td>
+                    <td><button type="submit"><i class="fa fa-search"></i></button></td>
+                </tr>
+            </table>
+            
+    <script>
+        document.getElementById("words").value = getParameterByName('words');
+        document.getElementById("lang_in").value = getParameterByName('lang_in');
+        document.getElementById("lang_out").value = getParameterByName('lang_out');
+        document.getElementById("dim").value = getParameterByName('dim');
+        document.getElementById("a").value = getParameterByName('a');
+        document.getElementById("clip").value = getParameterByName('clip');
+        document.getElementById("n").value = getParameterByName('n');
+        document.getElementById("n_rand").value = getParameterByName('n_rand');
+        document.getElementById("n_top").value = getParameterByName('n_top');
+        document.getElementById("graph").value = getParameterByName('graph');
+    </script>
+        </form>
+        </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<script src='https://cdn.plot.ly/plotly-2.3.0.min.js'></script>
+<script src='static/utils.js'></script>
+
+<main width=800px>
+<!--
+<div>
+<a href=>Frequency</a>
+<a href=>Circle</a>
+<a href=>Sphere</a>
+</div>
+-->
+<div style="margin:20;">
+    Angle: <span id=angle></span>
+</div>
+<div id=words width=100%>
+    <div id=wordvis></div>
+    <div id=wordlist>
+    </div>
+</div>
+</main>
+<script>
+function getSphereData(name, width, height, color, opacity, radius) {
+
+    var layout = {
+        title: name,
+        autosize: false,
+        width: width,
+        height: height,
+        margin: {
+            l: 65,
+            r: 50,
+            b: 65,
+            t: 90,
+        }
+    };
+
+    
+    a = [];
+    b = [];
+    c = [];
+    
+    var phiArr = [];
+    var thetaArr = [];
+    var numPoints = 20;
+    
+    var startValue = 0;
+    var stopValuePhi = Math.PI/2;
+    var stopValueTheta = 2*Math.PI;
+    var stepPhi = stopValuePhi / (numPoints - 1);
+    var stepTheta = stopValueTheta / (numPoints - 1);
+    for (var i = 0; i < numPoints; i++) {
+      phiArr.push(stepPhi * i);
+      thetaArr.push(stepTheta * i);
+    }
+
+    for (i=0; i<thetaArr.length; i++){
+        for (j=0; j<phiArr.length; j++){
+            a.push(radius * Math.cos(thetaArr[i]) * Math.sin(phiArr[j]));
+            b.push(radius * Math.sin(thetaArr[i]) * Math.sin(phiArr[j]));   
+            c.push(radius * Math.cos(phiArr[j]));
+        }
+    }
+
+
+    const dataitem = {
+        opacity: opacity,
+        color: 'rgb(211,211,211)',
+        type: 'mesh3d',
+        x: a,
+        y: b,
+        z: c,
+        lighting: {
+            ambient: 1,
+            diffuse: 0,
+            roughness: 0,
+            specular: 0,
+            fresnel: 0,
+        },
+    }   
+        
+
+    // Obtain the second half of the sphere by 
+    // duplicating  the upper semisphere ("..." operator before "dataitem") and 
+    // changing its "z" attribute into negative vales:
+    
+    var data = [
+        dataitem,
+        {...dataitem, z: c.map(v => -v)}
+    ];
+    
+    return {data:data, layout:layout};
+}
+
+
+var wordvis_data = null;
+
+function draw_wordvis(graph) {
+    let words = wordvis_data.words;
+    let mus = wordvis_data.mus;
+
+    console.log('words=',words);
+
+    const median = calc_median(words.Wtrans[0]);
+    const mu = median; // words.Wtrans[0].reduce((a, b) => a + b) / words.Wtrans[0].length;
+    const sigma = calc_stddev(words.Wtrans[0])*0.9;
+    const cutoff = quantile(words.Wtrans[0], 0.0001);
+    console.log("median",median);
+    console.log("mu",mu);
+    console.log("sigma",sigma);
+    console.log("cutoff",cutoff);
+
+    var layout = {
+        height: 0.75*window.innerHeight,
+        width: 0.95*window.innerWidth,
+        showlegend: false,
+        //margin: {pad: 0},
+        margin:{
+            l:50,
+            r:0,
+            t:0,
+            b:50,
+            pad:0,
+        },
+        xaxis: {
+            autorange: true,
+            showticklabels: true,
+        },
+        yaxis: {
+            autorange: true,
+        },
+        config: { responsive: true }
+    };
+
+    if (graph == 'freq') {
+        layout.xaxis.tickformat = '.1e';
+        layout.xaxis.type = 'log';
+        var trace1 = {
+            x: words.frequencies,
+            y: words.Wtrans[1],
+            text: words.words,
+            marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
+            mode: 'markers+text',
+            type: 'scattergl',
+        };
+        var traces = [trace1];
+    }
+    if (graph == '2d-hist') {
+
+        const min_val = Math.min.apply(null, words.Wtrans[0]);
+        const max_val = Math.max.apply(null, words.Wtrans[0]);
+        var dist_xs = [];
+        var dist_ys = [];
+        for (var x=min_val ; x<= max_val; x += (max_val-min_val)/1000) {
+            let y = 1/Math.sqrt(sigma*Math.PI*2) * Math.exp( - 1/2 * ((x-mu)/sigma)**2);
+            //let y = 1/sigma* Math.exp( - Math.abs(x-mu)/sigma);
+            dist_xs.push(x); 
+            dist_ys.push(y*800);
+        }
+        console.log("dist_xs",dist_xs);
+        console.log("dist_ys",dist_ys);
+
+        layout.shapes = [
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: median,
+                y0: 0,
+                x1: median,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: cutoff,
+                y0: 0,
+                x1: cutoff,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: median + median - cutoff,
+                y0: 0,
+                x1: median + median - cutoff,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+        ];
+        var trace1 = {
+            x: words.Wtrans[0],
+            type: 'histogram',
+        };
+        var trace2 = {
+            x: dist_xs,
+            y: dist_ys,
+            //yaxis: 'y2',
+            type: 'scatter',
+        };
+        var traces = [trace1, trace2];
+    }
+    if (graph == '2d') {
+        layout.shapes = [
+            {
+                type: 'circle',
+                xref: 'x',
+                yref: 'y',
+                x0: -1,
+                y0: -1,
+                x1: 1,
+                y1: 1,
+                line: {
+                  color: 'rgba(50, 171, 96, 1)'
+                }
+            },
+            {
+                type: 'circle',
+                xref: 'x',
+                yref: 'y',
+                x0: -cutoff,
+                y0: -cutoff,
+                x1: cutoff,
+                y1: cutoff,
+                line: {
+                  color: 'rgba(50, 171, 96, 1)'
+                }
+            }
+        ];
+        var trace1 = {
+            x: words.Wtrans[0],
+            y: words.Wtrans[1],
+            text: words.words,
+            //marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
+            //mode: 'markers+text',
+            marker: { size: 2, sizemode:'area' },
+            mode: 'markers',
+            type: 'scattergl',
+        };
+        var trace2 = {
+            x: mus.Utrans[0],
+            y: mus.Utrans[1],
+            type: 'scattergl',
+            hoverinfo: 'skip',
+        };
+        var traces = [trace1, trace2];
+    }
+    if (graph == '3d') {
+        layout.scene = {
+            xaxis: {
+                autorange: true,
+                showgrid: false,
+                zeroline: false,
+                showline: false,
+                autotick: true,
+                ticks: '',
+                showticklabels: false
+            },
+            yaxis: {
+                autorange: true,
+                showgrid: false,
+                zeroline: false,
+                showline: false,
+                autotick: true,
+                ticks: '',
+                showticklabels: false
+            },
+            zaxis: {
+                autorange: true,
+                showgrid: false,
+                zeroline: false,
+                showline: false,
+                autotick: true,
+                ticks: '',
+                showticklabels: false
+            },
+        };
+        let Wnorm = [[], [], []];
+        for (let i=0; i<words.Wtrans[0].length; i++) {
+            let norm = (words.Wtrans[0][i]**2 + words.Wtrans[1][i]**2 + words.Wtrans[2][i]**2)**(0.5)
+            Wnorm[0].push(words.Wtrans[0][i]/norm);
+            Wnorm[1].push(words.Wtrans[1][i]/norm);
+            Wnorm[2].push(words.Wtrans[2][i]/norm);
+        }
+        var trace1 = {
+            x: Wnorm[0],
+            y: Wnorm[1],
+            z: Wnorm[2],
+            text: words.words,
+            marker: { size: 1e-10/*words.distances*/, sizeref:4000, sizemode:'area' },
+            mode: 'markers+text',
+            type: 'scatter3d',
+        };
+        var trace2 = {
+            x: mus.Utrans[0],
+            y: mus.Utrans[1],
+            z: mus.Utrans[2],
+            type: 'scatter3d',
+            hoverinfo: 'skip',
+        };
+        let sphere = getSphereData('sphere', 0.15, 0.15, 'rgb(230,230,230)', 1, 0.9);
+        var traces = [sphere.data[0], sphere.data[1], trace1, trace2];
+    }
+    Plotly.newPlot('wordvis', traces, layout);
+
+    document.getElementById("angle").innerHTML = wordvis_data['mus']['angles'][0].toFixed(2) ;
+}
+
+function load_wordvis() {
+    const xhttp = new XMLHttpRequest();
+    xhttp.onload = function() {
+        wordvis_data = JSON.parse(this.responseText);
+        draw_wordvis(graph);
+    }
+    var words = getParameterByName('words');
+    var lang_in = getParameterByName('lang_in');
+    var lang_out = getParameterByName('lang_out');
+    var dim = getParameterByName('dim');
+    var a = getParameterByName('a');
+    var n = getParameterByName('n');
+    var n_rand = getParameterByName('n_rand');
+    var n_top = getParameterByName('n_top');
+    var n_top_take_every = getParameterByName('n_top_take_every');
+    var graph = getParameterByName('graph');
+    var pca_dims = getParameterByName('pca_dims');
+    var whiten = getParameterByName('whiten');
+    var center = getParameterByName('center');
+    let url = "/json/wordvis?";
+    if (words) url+="&words="+words;
+    if (lang_in) url+="&lang_in="+lang_in;
+    if (lang_out) url+="&lang_out="+lang_out;
+    if (dim) url+="&dim="+dim;
+    if (a) url+="&a="+a;
+    if (n) url+="&n="+n;
+    if (n_rand) url+="&n_rand="+n_rand;
+    if (n_top) url+="&n_top="+n_top;
+    if (n_top_take_every) url+="&n_top_take_every="+n_top_take_every;
+    if (center) url+="&center="+center;
+    if (graph) url+="&graph="+graph;
+    if (pca_dims) url+="&pca_dims="+pca_dims;
+    if (whiten) url+="&whiten="+whiten;
+    xhttp.open("GET", url, true);
+    xhttp.send();
+}
+load_wordvis();
+
+</script>
+{% endblock %}
+
+

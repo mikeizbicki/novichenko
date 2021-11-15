@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block header %}
+<header class=grid>
+        <div class="header logo">
+        <img src='/static/en-chajda.png' width=120px height=30px>
+        </div>
+        <div style='display:grid; grid-column:2/5' width=100%>
+        <form id=form_search action='/wordcircle' method='get' style="display: flex; align-items: center; margin-top: 8; font-size: 1rem;">
+            <table>
+                <tr>
+                    <td>pos_words</td>
+                    <td>neg_words</td>
+                    <td>seed_words</td>
+                    <td>lang_in</td>
+                    <td>lang_out</td>
+                    <td>dim</td>
+                    <td>a</td>
+                    <td>clip</td>
+                    <td>n</td>
+                    <td>n_top</td>
+                </tr>
+                <tr>
+                    <td><input type=text id=pos_words name=pos_words /></td>
+                    <td><input type=text id=neg_words name=neg_words /></td>
+                    <td><input type=text id=seed_words name=seed_words /></td>
+                    <td>
+                    <select name="lang_in" id="lang_in" style='min-width: 100px;'>
+                    </select>
+                    </td>
+                    <td>
+                    <select name="lang_out" id="lang_out" style='min-width: 100px;'>
+                    </select>
+    <script>
+        var langs=['ar','de','el','en','es','fr','ko','pt','ru','sv','th','zh'];
+        lang_in = document.getElementById('lang_in')
+        lang_out = document.getElementById('lang_out')
+        for (let i=0; i<langs.length; i++) {
+            let lang=langs[i];
+            let option1 = document.createElement("option");
+            option1.textContent = lang;
+            option1.value = lang;
+            lang_in.add(option1);
+            let option2 = document.createElement("option");
+            option2.textContent = lang;
+            option2.value = lang;
+            lang_out.add(option2);
+        }
+    </script>
+                    </td>
+                    <td>
+                    <select name="dim" id="dim" style='min-width: 100px;'>
+                      <option value="25" default>25</option>
+                      <option value="50" >50</option>
+                      <option value="100" >100</option>
+                      <option value="200" >200</option>
+                      <option value="300" >300</option>
+                    </select>
+                    </td>
+                    <td><input style='max-width:80px' id=a name=a /></td>
+                    <td><input style='max-width:80px' id=clip name=clip /></td>
+                    <td><input style='max-width:80px' id=n name=n /></td>
+                    <td><input style='max-width:80px' id=n_top name=n_top /></td>
+                    <td><button type="submit"><i class="fa fa-search"></i></button></td>
+                </tr>
+            </table>
+            
+    <script>
+        document.getElementById("pos_words").value = getParameterByName('pos_words');
+        document.getElementById("neg_words").value = getParameterByName('neg_words');
+        document.getElementById("seed_words").value = getParameterByName('seed_words');
+        document.getElementById("lang_in").value = getParameterByName('lang_in');
+        document.getElementById("lang_out").value = getParameterByName('lang_out');
+        document.getElementById("dim").value = getParameterByName('dim');
+        document.getElementById("a").value = getParameterByName('a');
+        document.getElementById("clip").value = getParameterByName('clip');
+        document.getElementById("n").value = getParameterByName('n');
+        document.getElementById("n_top").value = getParameterByName('n_top');
+    </script>
+        </form>
+        </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<script src='https://cdn.plot.ly/plotly-2.3.0.min.js'></script>
+<script src='static/utils.js'></script>
+
+<main width=800px>
+<div style="margin:20;">
+    Angle: <span id=angle></span>
+</div>
+<div id=words width=100%>
+    <div id=wordcircle></div>
+    <div id=wordlist>
+    </div>
+</div>
+</main>
+<script>
+var wordcircle_data = null;
+
+function draw_wordcircle() {
+    clip = parseFloat(getParameterByName('clip'));
+    div = parseFloat(getParameterByName('div'));
+    a = parseFloat(getParameterByName('a'));
+    let ys = [];
+    let words = wordcircle_data.words;
+    let mus = wordcircle_data.mus;
+    for (let i=0; i<words.words.length; i++) {
+        //frequency_modification = wordcircle_data.projection[i]*(1-wordcircle_data.frequencies[i])**a;
+        f = words.frequencies[i];
+        d = words.distances[i];
+        y = words.ys[0][i];
+        if (div) {
+            y /= d + div;
+        }
+        if (a) {
+            y = y*(a/(a + f));
+        }
+        if (clip && d > clip) {
+            y = 0;
+        }
+        ys.push(y);
+    }
+
+    // table
+    let tableHTML = '';
+    tableHTML = '<table>';
+    tableHTML += '<tr><th>text</th><th>projection</th><th>distance</th><th>frequency</th></tr>';
+    for (let i=0; i<words.words.length; i++) {
+        tableHTML += '<tr>';
+        tableHTML += '<td>' + words.words[i] + '</td>';
+        tableHTML += '<td align=right>' + words.ys[0][i].toFixed(4) + '</td>';
+        tableHTML += '<td align=right>' + words.distances[i].toFixed(4) + '</td>';
+        tableHTML += '<td align=right>' + words.frequencies[i].toExponential(2) + '</td>';
+        tableHTML += '</tr>';
+    }
+    tableHTML += '</table>';
+    document.getElementById("wordlist").innerHTML = tableHTML;
+
+    // plotly
+    if (false) {
+        var trace1 = {
+            x: words.frequencies,
+            y: ys,
+            distance: words.distances,
+            text: words.words,
+            marker: { size: words.distances, sizeref:4000, sizemode:'area' },
+            hovertemplate: '%{text} dist=%{marker.size:}',
+            mode: 'markers+text',
+            type: 'scatter',
+        }
+        var layout = {
+            height: 0.75*window.innerHeight,
+            width: 0.95*window.innerWidth,
+            showlegend: false,
+            //margin: {pad: 0},
+            margin:{
+                l:50,
+                r:0,
+                t:0,
+                b:50,
+                pad:0,
+            },
+            xaxis: {
+                autorange: true,
+                showticklabels: true,
+                tickformat: ".1e",
+                type: 'log',
+            },
+            yaxis: {
+                autorange: true,
+            },
+            config: { responsive: true }
+        };
+        Plotly.newPlot('wordcircle',[trace1], layout);
+    }
+    else {
+        let markers = words.xs[0].map(x => Math.abs(x - mus.xs[0][0]));
+        console.log('markers=',markers);
+        console.log('mus=',mus);
+        var trace1 = {
+            x: words.xs[0],
+            y: words.ys[0],
+            distance: words.distances,
+            text: words.words,
+            marker: { size: markers, sizeref:4000, sizemode:'area' },
+            hovertemplate: '%{text} dist=%{marker.size:}',
+            mode: 'markers+text',
+            type: 'scatter',
+        };
+        var trace2 = {
+            x: mus.xs[0],
+            y: mus.ys[0],
+            type: 'scatter',
+            hoverinfo: 'skip',
+        };
+        var layout = {
+            height: 0.75*window.innerHeight,
+            width: 0.95*window.innerWidth,
+            showlegend: false,
+            //margin: {pad: 0},
+            margin:{
+                l:50,
+                r:0,
+                t:0,
+                b:50,
+                pad:0,
+            },
+            xaxis: {
+                autorange: true,
+                showticklabels: true,
+            },
+            yaxis: {
+                autorange: true,
+            },
+            shapes: [{
+                type: 'circle',
+                xref: 'x',
+                yref: 'y',
+                x0: -1,
+                y0: -1,
+                x1: 1,
+                y1: 1,
+                line: {
+                  color: 'rgba(50, 171, 96, 1)'
+                }
+            }],
+            config: { responsive: true }
+        };
+        Plotly.newPlot('wordcircle',[trace1,trace2], layout);
+    }
+
+    document.getElementById("angle").innerHTML = wordcircle_data['mus']['angles'][0].toFixed(2) ;
+}
+
+function load_wordcircle() {
+    const xhttp = new XMLHttpRequest();
+    xhttp.onload = function() {
+        wordcircle_data = JSON.parse(this.responseText);
+        draw_wordcircle();
+    }
+    pos_words = getParameterByName('pos_words');
+    neg_words = getParameterByName('neg_words');
+    seed_words = getParameterByName('seed_words');
+    lang_in = getParameterByName('lang_in');
+    lang_out = getParameterByName('lang_out');
+    dim = getParameterByName('dim');
+    n = getParameterByName('n');
+    n_top = getParameterByName('n_top');
+    n_top_take_every = getParameterByName('n_top_take_every');
+    center = getParameterByName('center');
+    let url = "/json/wordcircle?";
+    if (pos_words) url+="&pos_words="+pos_words;
+    if (neg_words) url+="&neg_words="+neg_words;
+    if (seed_words) url+="&seed_words="+seed_words;
+    if (lang_in) url+="&lang_in="+lang_in;
+    if (lang_out) url+="&lang_out="+lang_out;
+    if (dim) url+="&dim="+dim;
+    if (n) url+="&n="+n;
+    if (n_top) url+="&n_top="+n_top;
+    if (n_top_take_every) url+="&n_top_take_every="+n_top_take_every;
+    if (center) url+="&center="+center;
+    xhttp.open("GET", url, true);
+    xhttp.send();
+}
+load_wordcircle();
+
+</script>
+{% endblock %}
+

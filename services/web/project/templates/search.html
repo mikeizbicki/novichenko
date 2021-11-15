@@ -61,7 +61,7 @@
             <br>
             neg words <input id=neg_words name=neg_words readonly value="{{neg_words}}">
             <br>
-            <a href='/wordcloud?pos_words={{pos_words}}&neg_words={{neg_words}}&dim=25'>visualize projection</a>
+            <a href='/wordcloud?pos_words={{pos_words}}&neg_words={{neg_words}}&dim=300'>visualize projection</a>
             <br>
             <br>
             <script>
@@ -75,22 +75,6 @@
                     'freedom': ['oppression', 'freedom'],
                     'scary': ['relaxing unafraid comfort','scary afraid fear'], 
                     'science': ['science', 'religion'],
-
-                    // emotions: good-bad, funny-sad, happy-sad, happy-angry, scary-relaxing, sexy-unsexy, erotic-unerotic
-                    // threat: friend-enemy, war-peace, truth-lie, oppression-freedom, safety-danger
-                    // ? male-female, alive-dead, intelligent-stupid, fake-real, primitive-advanced, strong-weak, hot-cold, big-small, health-unhealthy, military-civilian
-
-                    // culture: music, film, books, games
-                    // policy-education, healthcare, politics, voting, immigration, crime
-                    // math-topology, geometry, analysis, algebra
-                    // religion: christianity, islam, budhism
-                    // 'science-biology': ['biology'], chemistry, physics, medicine, engineering, sociology, psychology
-                    // 'technology-email': ['email'], email, computer, internet, spaceship
-                    // transportation-car, train, airplane, boat, walking, bike
-                    // sports-baseball, basketball, soccer, football
-                    // military: army, navy, marines, wmd, gun, terrorism
-                    // ? fuck, drugs, illness
-
                     'sentiment': ['positive good better best', 'negative bad worse worst'], 
                     'sentiment2': ['good', 'bad'], 
                     'success': ['successful', 'failed'],
@@ -121,10 +105,6 @@
                 }
                 document.getElementById('projection_axis').addEventListener('change', projection_axis_change);
             </script>
-        </li>
-        <li>
-            <input type="checkbox" id="rm_vh_data" name="rm_vh_data" value="True" checked><label for="rm_vh_data">rm_vh_data</label><br>
-            <input type="checkbox" id="rm_vh_hardcoded" name="rm_vh_hardcoded" value="True" checked><label for="rm_vh_hardcoded">rm_vh_hardcoded</label><br>
         </li>
         <li>window size 
             <br>
