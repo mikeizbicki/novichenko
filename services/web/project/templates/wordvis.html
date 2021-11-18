@@ -12,12 +12,15 @@
                     <td>words</td>
                     <td>lang_in</td>
                     <td>lang_out</td>
-                    <td>dim</td>
+                    <td>vector dim</td>
+                    <td>subspace dim</td>
                     <td>a</td>
                     <td>clip</td>
                     <td>n</td>
                     <td>n_rand</td>
                     <td>n_top</td>
+                    <td>x_axis</td>
+                    <td>y_axis</td>
                     <td>graph</td>
                 </tr>
                 <tr>
@@ -55,15 +58,56 @@
                       <option value="300" >300</option>
                     </select>
                     </td>
+                    <td>
+                    <select name="max_subspace_dim" id="max_subspace_dim" style='min-width: 100px;'>
+                      <option value="None">None</option>
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2" default>2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                      <option value="6">6</option>
+                      <option value="7">7</option>
+                      <option value="8">8</option>
+                      <option value="9">9</option>
+                      <option value="10">10</option>
+                    </select>
+                    </td>
                     <td><input style='max-width:80px' id=a name=a /></td>
                     <td><input style='max-width:80px' id=clip name=clip /></td>
                     <td><input style='max-width:80px' id=n name=n /></td>
                     <td><input style='max-width:80px' id=n_rand name=n_rand /></td>
                     <td><input style='max-width:80px' id=n_top name=n_top /></td>
                     <td>
+                    <select name="x_axis" id="x_axis" style='min-width: 80px;'>
+                      <option value="freq">freq</option>
+                      <option value="dist" default>dist</option>
+                      <option value="norm">norm</option>
+                      <option value="vstar">vstar</option>
+                      <option value="subspace1">subspace1</option>
+                      <option value="subspace2">subspace2</option>
+                      <option value="subspace3">subspace3</option>
+                    </select>
+                    </td>
+                    <td>
+                    <select name="y_axis" id="y_axis" style='min-width: 80px;'>
+                      <option value="freq">freq</option>
+                      <option value="dist">dist</option>
+                      <option value="norm">norm</option>
+                      <option value="vstar">vstar</option>
+                      <option value="subspace1" default>subspace1</option>
+                      <option value="subspace2">subspace2</option>
+                      <option value="subspace3">subspace3</option>
+                      <option value="histogram">histogram</option>
+                    </select>
+                    </td>
+                    <td>
                     <select name="graph" id="graph" style='min-width: 80px;'>
                       <option value="freq" default>freq</option>
                       <option value="2d" >2d</option>
+                      <option value="2d-dist" >2d-dist</option>
+                      <option value="2d-dist-norms" >2d-dist-norms</option>
                       <option value="2d-hist" >2d-hist</option>
                       <option value="3d" >3d</option>
                     </select>
@@ -77,12 +121,15 @@
         document.getElementById("lang_in").value = getParameterByName('lang_in');
         document.getElementById("lang_out").value = getParameterByName('lang_out');
         document.getElementById("dim").value = getParameterByName('dim');
+        document.getElementById("max_subspace_dim").value = getParameterByName('max_subspace_dim');
         document.getElementById("a").value = getParameterByName('a');
         document.getElementById("clip").value = getParameterByName('clip');
         document.getElementById("n").value = getParameterByName('n');
         document.getElementById("n_rand").value = getParameterByName('n_rand');
         document.getElementById("n_top").value = getParameterByName('n_top');
         document.getElementById("graph").value = getParameterByName('graph');
+        document.getElementById("x_axis").value = getParameterByName('x_axis');
+        document.getElementById("y_axis").value = getParameterByName('y_axis');
     </script>
         </form>
         </div>
@@ -186,16 +233,20 @@ function getSphereData(name, width, height, color, opacity, radius) {
 
 var wordvis_data = null;
 
-function draw_wordvis(graph) {
+function draw_wordvis(graph, x_axis, y_axis) {
     let words = wordvis_data.words;
     let mus = wordvis_data.mus;
 
     console.log('words=',words);
+    console.log("mus",mus);
 
-    const median = calc_median(words.Wtrans[0]);
-    const mu = median; // words.Wtrans[0].reduce((a, b) => a + b) / words.Wtrans[0].length;
-    const sigma = calc_stddev(words.Wtrans[0])*0.9;
-    const cutoff = quantile(words.Wtrans[0], 0.0001);
+    //let plot_val = words.Wtrans[0];
+    let plot_val = words.distances;
+    const median = calc_median(plot_val);
+    const mu = median; // plot_val.reduce((a, b) => a + b) / words.Wtrans[0].length;
+    const sigma = calc_stddev(plot_val)*0.9;
+    const cutoff = quantile(plot_val, 0.99);
+    const cutoff_W = cutoff-mus.Utrans[0][0];
     console.log("median",median);
     console.log("mu",mu);
     console.log("sigma",sigma);
@@ -223,6 +274,83 @@ function draw_wordvis(graph) {
         config: { responsive: true }
     };
 
+    graph = '2d';
+    if (graph == '2d') {
+        var x,y,trace2_x,trace2_y;
+        if (x_axis == 'freq') {x = words.frequencies; layout.xaxis.type='log' }
+        if (x_axis == 'dist') {x = words.distances; }
+        if (x_axis == 'norm') {x = words.norms; }
+        if (x_axis == 'vstar') {x = words.Wtrans[0]; trace2_x=mus.Utrans[0]; }
+        if (x_axis == 'subspace1') {x = words.Wtrans[1]; trace2_x=mus.Utrans[1]; }
+        if (x_axis == 'subspace2') {x = words.Wtrans[2]; trace2_x=mus.Utrans[2]; }
+        if (x_axis == 'subspace3') {x = words.Wtrans[3]; trace2_x=mus.Utrans[3]; }
+        if (y_axis == 'freq') {y = words.frequencies; layout.yaxis.type='log' }
+        if (y_axis == 'dist') {y = words.distances; }
+        if (y_axis == 'norm') {y = words.norms; }
+        if (y_axis == 'vstar') {y = words.Wtrans[0]; trace2_y=mus.Utrans[0]; }
+        if (y_axis == 'subspace1') {y = words.Wtrans[1]; trace2_y=mus.Utrans[1]; }
+        if (y_axis == 'subspace2') {y = words.Wtrans[2]; trace2_y=mus.Utrans[2]; }
+        if (y_axis == 'subspace3') {y = words.Wtrans[3]; trace2_y=mus.Utrans[3]; }
+        if (y_axis == 'histogram') {
+            var trace1 = {
+                x: x,
+                type: 'histogram',
+            };
+        }
+        else {
+            var trace1 = {
+                x: x,
+                y: y,
+                text: words.words,
+                marker: { size: 2, sizemode:'area' },
+                mode: 'markers',
+                type: 'scattergl',
+            };
+        }
+        var trace2 = {
+            x: trace2_x,
+            y: trace2_y,
+            type: 'scattergl',
+            hoverinfo: 'skip',
+        };
+        var traces = [trace1, trace2];
+
+        if ((x_axis.includes('subspace') || x_axis.includes('vstar')) 
+         && (y_axis.includes('subspace') || y_axis.includes('vstar'))) {
+            var color = 'rgba(255, 165, 0, 1)';
+            if (x_axis.includes('vstar') || y_axis.includes('vstar')) {
+                color = 'rgba(50, 171, 96, 1)';
+            }
+            layout.shapes = [
+                {
+                    type: 'circle',
+                    xref: 'x',
+                    yref: 'y',
+                    x0: -1,
+                    y0: -1,
+                    x1: 1,
+                    y1: 1,
+                    line: {
+                      color: color
+                    }
+                },
+            ];
+        }
+        if (x_axis == 'vstar' && y_axis.includes('subspace')) {
+        }
+        /*
+        var trace2 = {
+            x: mus.Utrans[0],
+            y: mus.Utrans[1],
+            type: 'scattergl',
+            hoverinfo: 'skip',
+        };
+        */
+    }
+    Plotly.newPlot('wordvis', traces, layout);
+    document.getElementById("angle").innerHTML = wordvis_data['mus']['angles'][0].toFixed(2) ;
+    
+    /*
     if (graph == 'freq') {
         layout.xaxis.tickformat = '.1e';
         layout.xaxis.type = 'log';
@@ -238,15 +366,15 @@ function draw_wordvis(graph) {
     }
     if (graph == '2d-hist') {
 
-        const min_val = Math.min.apply(null, words.Wtrans[0]);
-        const max_val = Math.max.apply(null, words.Wtrans[0]);
+        const min_val = Math.min.apply(null, plot_val);
+        const max_val = Math.max.apply(null, plot_val);
         var dist_xs = [];
         var dist_ys = [];
         for (var x=min_val ; x<= max_val; x += (max_val-min_val)/1000) {
             let y = 1/Math.sqrt(sigma*Math.PI*2) * Math.exp( - 1/2 * ((x-mu)/sigma)**2);
             //let y = 1/sigma* Math.exp( - Math.abs(x-mu)/sigma);
             dist_xs.push(x); 
-            dist_ys.push(y*800);
+            dist_ys.push(y*400);
         }
         console.log("dist_xs",dist_xs);
         console.log("dist_ys",dist_ys);
@@ -290,7 +418,7 @@ function draw_wordvis(graph) {
             },
         ];
         var trace1 = {
-            x: words.Wtrans[0],
+            x: plot_val,
             type: 'histogram',
         };
         var trace2 = {
@@ -300,6 +428,108 @@ function draw_wordvis(graph) {
             type: 'scatter',
         };
         var traces = [trace1, trace2];
+    }
+    if (graph == '2d-dist-norms') {
+        layout.shapes = [
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: median,
+                y0: 0,
+                x1: median,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: cutoff,
+                y0: 0,
+                x1: cutoff,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: median + median - cutoff,
+                y0: 0,
+                x1: median + median - cutoff,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+        ];
+        var trace1 = {
+            x: words.distances,
+            y: words.norms,
+            text: words.words,
+            //marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
+            //mode: 'markers+text',
+            marker: { size: 2, sizemode:'area' },
+            mode: 'markers',
+            type: 'scattergl',
+        };
+        var traces = [trace1];
+    }
+    if (graph == '2d-dist') {
+        layout.shapes = [
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: median,
+                y0: 0,
+                x1: median,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: cutoff,
+                y0: 0,
+                x1: cutoff,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+            {
+                type: 'line',
+                yref: 'paper',
+                x0: median + median - cutoff,
+                y0: 0,
+                x1: median + median - cutoff,
+                y1: 1,
+                line: {
+                    color: 'rgb(50, 171, 96)',
+                    width: 3
+                }
+            },
+        ];
+        var trace1 = {
+            x: words.distances,
+            y: words.Wtrans[1],
+            text: words.words,
+            //marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
+            //mode: 'markers+text',
+            marker: { size: 2, sizemode:'area' },
+            mode: 'markers',
+            type: 'scattergl',
+        };
+        var traces = [trace1];
     }
     if (graph == '2d') {
         layout.shapes = [
@@ -319,10 +549,10 @@ function draw_wordvis(graph) {
                 type: 'circle',
                 xref: 'x',
                 yref: 'y',
-                x0: -cutoff,
-                y0: -cutoff,
-                x1: cutoff,
-                y1: cutoff,
+                x0: -cutoff_W,
+                y0: -cutoff_W,
+                x1: cutoff_W,
+                y1: cutoff_W,
                 line: {
                   color: 'rgba(50, 171, 96, 1)'
                 }
@@ -388,7 +618,7 @@ function draw_wordvis(graph) {
             y: Wnorm[1],
             z: Wnorm[2],
             text: words.words,
-            marker: { size: 1e-10/*words.distances*/, sizeref:4000, sizemode:'area' },
+            marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
             mode: 'markers+text',
             type: 'scatter3d',
         };
@@ -403,26 +633,29 @@ function draw_wordvis(graph) {
         var traces = [sphere.data[0], sphere.data[1], trace1, trace2];
     }
     Plotly.newPlot('wordvis', traces, layout);
-
     document.getElementById("angle").innerHTML = wordvis_data['mus']['angles'][0].toFixed(2) ;
+     */
 }
 
 function load_wordvis() {
     const xhttp = new XMLHttpRequest();
     xhttp.onload = function() {
         wordvis_data = JSON.parse(this.responseText);
-        draw_wordvis(graph);
+        draw_wordvis(graph, x_axis, y_axis);
     }
     var words = getParameterByName('words');
     var lang_in = getParameterByName('lang_in');
     var lang_out = getParameterByName('lang_out');
     var dim = getParameterByName('dim');
+    var max_subspace_dim = getParameterByName('max_subspace_dim');
     var a = getParameterByName('a');
     var n = getParameterByName('n');
     var n_rand = getParameterByName('n_rand');
     var n_top = getParameterByName('n_top');
     var n_top_take_every = getParameterByName('n_top_take_every');
     var graph = getParameterByName('graph');
+    var x_axis = getParameterByName('x_axis');
+    var y_axis = getParameterByName('y_axis');
     var pca_dims = getParameterByName('pca_dims');
     var whiten = getParameterByName('whiten');
     var center = getParameterByName('center');
@@ -431,6 +664,7 @@ function load_wordvis() {
     if (lang_in) url+="&lang_in="+lang_in;
     if (lang_out) url+="&lang_out="+lang_out;
     if (dim) url+="&dim="+dim;
+    if (max_subspace_dim) url+="&max_subspace_dim="+max_subspace_dim;
     if (a) url+="&a="+a;
     if (n) url+="&n="+n;
     if (n_rand) url+="&n_rand="+n_rand;
@@ -438,6 +672,8 @@ function load_wordvis() {
     if (n_top_take_every) url+="&n_top_take_every="+n_top_take_every;
     if (center) url+="&center="+center;
     if (graph) url+="&graph="+graph;
+    if (x_axis) url+="&x_axis="+x_axis;
+    if (y_axis) url+="&y_axis="+y_axis;
     if (pca_dims) url+="&pca_dims="+pca_dims;
     if (whiten) url+="&whiten="+whiten;
     xhttp.open("GET", url, true);

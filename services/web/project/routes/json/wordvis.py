@@ -9,6 +9,7 @@ import logging
 import datetime
 import numpy as np
 import math
+from sklearn.decomposition import PCA
 
 
 #logging.basicConfig()
@@ -82,17 +83,23 @@ def json_wordvis():
     except (TypeError,ValueError):
         pca_dims = 0
 
-    return make_wordvis(subspace_wordss, seed_words, lang_in, lang_out, dim, a, n, n_rand, n_top, top_word_minlen, n_top_take_every, center, pca_dims, whiten)
+    try:
+        max_subspace_dim = int(request.args.get('max_subspace_dim', 2))
+    except (TypeError,ValueError):
+        max_subspace_dim = 999
+    logging.info(f"max_subspace_dim={max_subspace_dim}")
+
+    return make_wordvis(subspace_wordss, seed_words, lang_in, lang_out, dim, a, n, n_rand, n_top, top_word_minlen, n_top_take_every, center, pca_dims, whiten, max_subspace_dim)
 
 
-rand_dim=30
+rand_dim=3
 P_rand = np.random.normal(size=[rand_dim,300])
 P_rand[0] /= np.linalg.norm(P_rand[0])
 P_rand[1] /= np.linalg.norm(P_rand[1])
 P_rand[2] /= np.linalg.norm(P_rand[2])
 
 
-def make_wordvis(subspace_wordss, seed_words=[], lang_in='en', lang_out='en', dim=25, a=None, n=100, n_rand=0, n_top=0, top_word_minlen=4, n_top_take_every=10, center=True, pca_dims=0, whiten=True):
+def make_wordvis(subspace_wordss, seed_words=[], lang_in='en', lang_out='en', dim=25, a=None, n=100, n_rand=0, n_top=0, top_word_minlen=4, n_top_take_every=10, center=True, pca_dims=0, whiten=True, max_subspace_dim=2):
     '''
     >>> make_wordcloud([['cat'], ['dog']])
     '''
@@ -134,10 +141,8 @@ def make_wordvis(subspace_wordss, seed_words=[], lang_in='en', lang_out='en', di
 
 
         if not hasattr(this, 'centered_pca'):
-            from sklearn.decomposition import PCA
             this.centered_pca = PCA()
             this.centered_pca.fit(this.kv.vectors)
-            logging.info(f"this.centered_pca.explained_variance_ratio_={this.centered_pca.explained_variance_ratio_}")
             this.centered_pca_dims = 0
 
         logging.info(f"this.centered_pca_dims={this.centered_pca_dims}")
@@ -153,30 +158,23 @@ def make_wordvis(subspace_wordss, seed_words=[], lang_in='en', lang_out='en', di
             logging.info(f"np.einsum('j,ij,j->ij', U[0], this.kv.vectors, U[0]).shape={np.einsum('j,ij,j->ij', U[0], this.kv.vectors, U[0]).shape}")
             np.expand_dims(this.kv.vectors @ U[0], axis=1) @ np.expand_dims(U[0], axis=0)
 
-
-
             #logging.info(f"np.expand_dims(this.kv.vectors @ U[0], axis=1) @ np.expand_dims(U[0], axis=0).shape={np.expand_dims(this.kv.vectors @ U[0], axis=1) @ np.expand_dims(U[0], axis=0).shape}")
             this.kv.vectors += sum([ (this.kv.vectors @ U[i:i+1].T) @ U[i:i+1] for i in range(this.centered_pca_dims)])
             this.kv.vectors -= sum([ (this.kv.vectors @ U[i:i+1].T) @ U[i:i+1] for i in range(pca_dims)])
             this.centered_pca_dims == pca_dims
 
-
         if not hasattr(this, 'whitened'):
             this.whitened = False
 
         U = this.centered_pca.components_
-        logging.info(f"U={U}")
         logging.info(f"np.linalg.norm(U)={np.linalg.norm(U)}")
         logging.info(f"(this.whitened, whiten)={(this.whitened, whiten)}")
         if this.whitened == whiten:
             pass
         elif whiten:
-            logging.info(f"np.linalg.norm(this.kv.vectors[1000:1010], axis=1)={np.linalg.norm(this.kv.vectors[1000:1010], axis=1)}")
             this.kv.vectors = this.kv.vectors @ (U * this.centered_pca.singular_values_**(-1/2))
             this.kv.vectors /= np.expand_dims(np.linalg.norm(this.kv.vectors, axis=1), axis=1)
-
             this.whitened = True
-            logging.info(f"np.linalg.norm(this.kv.vectors[1000:1010], axis=1)={np.linalg.norm(this.kv.vectors[1000:1010], axis=1)}")
         else:
             this.kv.vectors = this.kv.vectors @ np.linalg.inv(U)
             this.whitened = False
@@ -243,15 +241,101 @@ def make_wordvis(subspace_wordss, seed_words=[], lang_in='en', lang_out='en', di
 
     subspace_pointss = [ words_to_points(embedding_in, words) for words in subspace_wordss ]
 
+    S = np.array([ normalize(mean(subspace_points)) for subspace_points in subspace_pointss ])
+    logging.info(f"S.shape={S.shape}")
+    logging.info(f"max_subspace_dim={max_subspace_dim}")
+
+    if max_subspace_dim < S.shape[0]:
+        subspace_mu = mean(S)
+        vectorspace_points = S - subspace_mu
+        vectorspace_pca = PCA()
+        vectorspace_pca.fit(vectorspace_points)
+        S = vectorspace_pca.components_[:max_subspace_dim+1] + subspace_mu
+        logging.info(f"S.shape={S.shape}")
+
+    V = S[1:]-S[0]
+    #V = np.concatenate([ S[1:]-S[0], P_rand[:max(0,rand_dim-S.shape[0]-1),:dim] ], axis=0)
+    logging.info(f"V.shape={V.shape}")
+    logging.info(f"len(subspace_pointss)={len(subspace_pointss)}")
+    if S.shape[0] > 0:
+        P = V.T @ np.linalg.inv(V @ V.T) @ V
+        logging.info(f"P.shape={P.shape}")
+        I_minus_P = np.eye(dim) - P
+        logging.info(f"I_minus_P.shape={I_minus_P.shape}")
+        s_star = S[0] @ I_minus_P
+        logging.info(f"s_star.shape={s_star.shape}")
+        logging.info(f"np.linalg.norm(s_star)={np.linalg.norm(s_star)}")
+        S_plus = np.array([normalize(s_star)] + [normalize(vj) for vj in np.concatenate([V , P_rand[:2,:dim]], axis=0)])
+        logging.info(f"S_plus.shape={S_plus.shape}")
+        U = S @ S_plus.T
+        logging.info(f"U.shape={U.shape}")
+        #logging.info(f"U={U}")
+        distances = np.linalg.norm((words_points-s_star)@I_minus_P, axis=1)
+        shifted = words_points - s_star
+        in_space = shifted@P
+        out_space = shifted - in_space
+        norms = np.linalg.norm(in_space, axis=1)
+        distances = np.linalg.norm(out_space, axis=1)
+        #distances = np.linalg.norm((words_points-s_star)-(words_points-s_star)@P, axis=1)
+        #distances = (words_points-s_star)@s_star / np.linalg.norm(s_star)
+        #distances = np.linalg.norm((words_points)@I_minus_P-s_star, axis=1)
+        logging.info(f"np.linalg.norm(words_points[:10],axis=1)={np.linalg.norm(words_points[:10],axis=1)}")
+        logging.info(f"words_points.shape={words_points.shape}")
+        logging.info(f"distances.shape={distances.shape}")
+    else:
+        P = np.zeros([dim,dim])
+        I_minus_P = np.eye(dim)
+        S_plus = np.array([normalize(vj) for vj in P_rand[:2,:dim]])
+        logging.info(f"S_plus.shape={S_plus.shape}")
+        U = np.array([[]])
+        distances = np.array([])
+
+    W = words_points @ S_plus.T
+    logging.info(f"W.shape={W.shape}")
+
+
+    angles = [ float(np.arccos(np.dot(S[0],sj)/np.linalg.norm(S[0])/np.linalg.norm(sj)))/math.pi*180 for sj in S[1:] ]
+
+    return {
+        'words': {
+            'words' : words,
+            'Wtrans': W.T.tolist(),
+            'norms' : norms.tolist(),
+            'distances' : distances.tolist(),
+            'frequencies': frequencies.tolist(),
+        },
+        'mus': {
+            'Utrans': U.T.tolist(),
+            'angles': angles,
+            }
+        }
+
+
     V = np.array([ normalize(mean(subspace_points)) for subspace_points in subspace_pointss ])
     logging.info(f"V.shape={V.shape}")
 
-    p0 = normalize(np.sum(V, axis=0))
+    VVT = V @ V.T
+    e = np.ones([1, len(subspace_pointss)])
+    alpha = np.linalg.inv(VVT) @ e.T / (e @ VVT @ e.T)
+    logging.info(f"alpha.shape={alpha.shape}")
+    vstar = alpha.T @ V
+    logging.info(f"vstar.shape={vstar.shape}")
+
+    S = V[1:] - V[0]
+    vstar2 = V[0] @ (np.eye(dim) - S.T @ np.linalg.inv(S @ S.T) @ S)
+    logging.info(f"vstar2.shape={vstar2.shape}")
+
+    logging.info(f"vstar={vstar}")
+    logging.info(f"vstar2={vstar2}")
+    logging.info(f"(V[0] + V[1])/2={(V[0] + V[1])/2}")
+    p0 = normalize(vstar)[0]
+    #p0 = normalize(np.sum(V, axis=0))
     logging.info(f"p0.shape={p0.shape}")
+
     if len(search_words) > 0:
         P = np.array([p0] + [normalize(vj - V[0]) for vj in V[1:]])
         logging.info(f"P.shape={P.shape}")
-        Pmod = P_rand[:rand_dim-P.shape[0], :P.shape[1]]
+        Pmod = P_rand[:max(0,rand_dim-P.shape[0]), :P.shape[1]]
         logging.info(f"Pmod.shape={Pmod.shape}")
         P = np.concatenate([P, Pmod], axis=0)
         U = V @ P.T
@@ -270,8 +354,44 @@ def make_wordvis(subspace_wordss, seed_words=[], lang_in='en', lang_out='en', di
     W = words_points @ P.T
     logging.info(f"W.shape={W.shape}")
 
+    logging.info(f"U[:,0]={U[:,0]}")
     distances = abs(W[:,0] - U[0,0])
     logging.info(f"distances.shape={distances.shape}")
+
+    distances_U0 = abs(W[:,0] - U[0,0])
+    distances_U1 = abs(W[:,0] - U[1,0])
+    distances_U2 = abs(W[:,0] - np.linalg.norm(vstar))
+    logging.info(f"distances_U0[0]={distances_U0[0]}")
+    logging.info(f"distances_U1[0]={distances_U1[0]}")
+    logging.info(f"distances_U2[0]={distances_U2[0]}")
+
+    logging.info(f"vstar[0].shape={vstar[0].shape}")
+    Q = np.array([normalize(vj - vstar[0]) for vj in V[1:]])
+    logging.info(f"Q.shape={Q.shape}")
+    logging.info(f"(words_points - vstar).shape={(words_points - vstar).shape}")
+    logging.info(f"(Q.T @ Q).shape={(Q.T @ Q).shape}")
+    logging.info(f"(Q @ Q.T).shape={(Q @ Q.T).shape}")
+
+    logging.info(f"vstar @ (np.eye(dim) - Q.T @ Q)={vstar @ (np.eye(dim) - Q.T @ Q)}")
+    logging.info(f"vstar @ Q.T @ Q={vstar @ Q.T @ Q}")
+    logging.info(f"vstar={vstar}")
+    logging.info(f"(V[1] - vstar) @ (Q.T @ Q)={(V[1] - vstar) @ (Q.T @ Q)}")
+
+    Q = np.array([normalize(vj - vstar[0]) for vj in V[1:]])
+    distances2 = np.linalg.norm((words_points - vstar) @ (np.eye(dim) - Q.T @ Q), axis=1)
+    logging.info(f"distances2.shape={distances2.shape}")
+    distances2a = np.linalg.norm((words_points - vstar) @ (Q.T @ Q - np.eye(dim) ), axis=1)
+    logging.info(f"distances2.shape={distances2.shape}")
+    #R = Q @ np.linalg.inv(Q.T @ Q) @ Q.T
+    #distances2b = np.linalg.norm((words_points - vstar) @ (np.eye(dim) - R), axis=1)
+    Q = np.array([normalize(vj - V[0]) for vj in V[1:]])
+    distances3 = np.linalg.norm((words_points - V[0]) @ (np.eye(dim) - Q.T @ Q), axis=1)
+    logging.info(f"distances3.shape={distances3.shape}")
+
+    logging.info(f"distances[:10]={distances[:10]}")
+    logging.info(f"distances2[:10]={distances2[:10]}")
+    logging.info(f"distances2a[:10]={distances2a[:10]}")
+    logging.info(f"distances3[:10]={distances3[:10]}")
 
     return {
         'words': {
