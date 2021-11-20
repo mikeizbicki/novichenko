@@ -10,6 +10,7 @@ import datetime
 import numpy as np
 import math
 from sklearn.decomposition import PCA
+import json
 
 
 #logging.basicConfig()
@@ -296,19 +297,19 @@ def make_wordvis(subspace_wordss, seed_words=[], lang_in='en', lang_out='en', di
 
     angles = [ float(np.arccos(np.dot(S[0],sj)/np.linalg.norm(S[0])/np.linalg.norm(sj)))/math.pi*180 for sj in S[1:] ]
 
-    return {
+    return json.dumps(round_floats({
         'words': {
             'words' : words,
             'Wtrans': W.T.tolist(),
             'norms' : norms.tolist(),
             'distances' : distances.tolist(),
-            'frequencies': frequencies.tolist(),
+            'frequencies': [f if f>=0 and f<=1 else None for f in frequencies.tolist()],
         },
         'mus': {
             'Utrans': U.T.tolist(),
             'angles': angles,
             }
-        }
+        }))
 
 
     V = np.array([ normalize(mean(subspace_points)) for subspace_points in subspace_pointss ])
@@ -521,18 +522,32 @@ def make_wordvis(subspace_wordss, seed_words=[], lang_in='en', lang_out='en', di
     distances = np.linalg.norm(pre_distances, axis=1)
     logging.info(f"distances.shape={distances.shape}")
 
-    return {
+    freq_mod = [ f if f<=1 and f>=0 else None for f in frequencies]
+    logging.info(f"freq_mod={[ f for f in freq_mod if f > 1]}")
+    return json.dumps({
         'words': {
             'words' : words,
             'ys' : ys.T.tolist(),
             'xs' : xs.T.tolist(),
             'distances' : distances.tolist(),
-            'frequencies': frequencies,
+            'frequencies': freq_mod,
         },
         'mus': {
             'ys': ys_mus.T.tolist(),
             'xs': xs_mus.T.tolist(),
             'angles': angles,
             }
-        }
+        }, ignore_nan=True)
 
+def parse_constant(x):
+    return None
+    if x == 'Infinity':
+        return None
+    elif x == '-Infinity':
+        return None
+ 
+def round_floats(o, digits=4):
+    if isinstance(o, float): return float('{:0.4g}'.format(o))
+    if isinstance(o, dict): return {k: round_floats(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)): return [round_floats(x) for x in o]
+    return o

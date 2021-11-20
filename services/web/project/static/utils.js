@@ -94,12 +94,25 @@ function calc_median(numbers) {
     return sorted[middle];
 }
 
+function calc_mean(array) {
+    const n = array.length;
+    return array.reduce((a, b) => a + b) / n;
+}
 
 function calc_stddev(array) {
     if (!array || array.length === 0) {return 0;}
-    const n = array.length
-    const mean = array.reduce((a, b) => a + b) / n
-    return Math.sqrt(array.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
+    const n = array.length;
+    const mean = array.reduce((a, b) => a + b) / n;
+    return Math.sqrt(array.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / (n-1));
+}
+
+function calc_skewness(array) {
+    if (!array || array.length === 0) {return 0;}
+    const n = array.length;
+    const mean = array.reduce((a, b) => a + b) / n;
+    const stddev = calc_stddev(array);
+    const m3 = array.map( x=> Math.pow(x-mean, 3)).reduce((a,b) => a+b) / n;
+    return m3/Math.pow(stddev, 3);
 }
 
 function quantile(arr_in, q) {
@@ -113,6 +126,28 @@ function quantile(arr_in, q) {
         return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
     } else {
         return sorted[base];
+    }
+}
+
+function calc_mode(array, diff=0.2) {
+    const n = array.length;
+    const median = calc_median(array);
+    const lo = quantile(array, diff);
+    const hi = quantile(array, 1-diff);
+    console.log("lo",lo);
+    console.log("hi",hi);
+    if (median - lo > hi - median) {
+        const diff = hi - median;
+        const array2 = array.filter( x => x > median-diff && x < median+diff);
+        console.log("case1");
+        console.log("array2",array2);
+        return calc_median(array2);
+    }
+    else {
+        const diff = median - lo;
+        const array2 = array.filter( x => x > median-diff && x < median+diff);
+        console.log("array2",array2);
+        return calc_median(array2);
     }
 }
 

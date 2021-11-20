@@ -21,7 +21,6 @@
                     <td>n_top</td>
                     <td>x_axis</td>
                     <td>y_axis</td>
-                    <td>graph</td>
                 </tr>
                 <tr>
                     <td><input type=text id=words name=words style='min-width:400px;'/></td>
@@ -102,16 +101,6 @@
                       <option value="histogram">histogram</option>
                     </select>
                     </td>
-                    <td>
-                    <select name="graph" id="graph" style='min-width: 80px;'>
-                      <option value="freq" default>freq</option>
-                      <option value="2d" >2d</option>
-                      <option value="2d-dist" >2d-dist</option>
-                      <option value="2d-dist-norms" >2d-dist-norms</option>
-                      <option value="2d-hist" >2d-hist</option>
-                      <option value="3d" >3d</option>
-                    </select>
-                    </td>
                     <td><button type="submit"><i class="fa fa-search"></i></button></td>
                 </tr>
             </table>
@@ -127,7 +116,6 @@
         document.getElementById("n").value = getParameterByName('n');
         document.getElementById("n_rand").value = getParameterByName('n_rand');
         document.getElementById("n_top").value = getParameterByName('n_top');
-        document.getElementById("graph").value = getParameterByName('graph');
         document.getElementById("x_axis").value = getParameterByName('x_axis');
         document.getElementById("y_axis").value = getParameterByName('y_axis');
     </script>
@@ -140,121 +128,43 @@
 <script src='https://cdn.plot.ly/plotly-2.3.0.min.js'></script>
 <script src='static/utils.js'></script>
 
-<main width=800px>
-<!--
-<div>
-<a href=>Frequency</a>
-<a href=>Circle</a>
-<a href=>Sphere</a>
-</div>
--->
-<div style="margin:20;">
-    Angle: <span id=angle></span>
+<div style='display:grid; grid-column: 1/5; margin-bottom:10px; padding-top:10px; padding-bottom:10px; border-left: 0px; border-right:0px; border-top:1px; border-bottom:1px; border-color: black; border-style: solid; width:100%'> <!-- style="margin:20;">-->
+    <center>
+    <table border=0 cellspacing=0>
+        <tr>
+            <td style="min-width:150px">Min Angle</td><td  style="min-width:100px"id=min_angle></td>
+            <td style="min-width:150px">Mean Angle</td><td  style="min-width:100px"id=median_angle></td>
+            <td style="min-width:150px">Max Angle</td><td  style="min-width:100px"id=max_angle></td>
+            <td style="min-width:150px">Words Selected</td><td  style="min-width:100px"id=words_selected></td>
+            <td style="min-width:150px">Words Fraction</td><td  style="min-width:100px"id=words_fraction></td>
+            <td style="min-width:150px">Total Frequency</td><td  style="min-width:100px"id=total_frequency></td>
+        </tr>
+    </table>
+    </center>
 </div>
 <div id=words width=100%>
-    <div id=wordvis></div>
-    <div id=wordlist>
-    </div>
+    <div id=wordvis height=100%></div>
 </div>
-</main>
+
+
 <script>
-function getSphereData(name, width, height, color, opacity, radius) {
-
-    var layout = {
-        title: name,
-        autosize: false,
-        width: width,
-        height: height,
-        margin: {
-            l: 65,
-            r: 50,
-            b: 65,
-            t: 90,
-        }
-    };
-
-    
-    a = [];
-    b = [];
-    c = [];
-    
-    var phiArr = [];
-    var thetaArr = [];
-    var numPoints = 20;
-    
-    var startValue = 0;
-    var stopValuePhi = Math.PI/2;
-    var stopValueTheta = 2*Math.PI;
-    var stepPhi = stopValuePhi / (numPoints - 1);
-    var stepTheta = stopValueTheta / (numPoints - 1);
-    for (var i = 0; i < numPoints; i++) {
-      phiArr.push(stepPhi * i);
-      thetaArr.push(stepTheta * i);
-    }
-
-    for (i=0; i<thetaArr.length; i++){
-        for (j=0; j<phiArr.length; j++){
-            a.push(radius * Math.cos(thetaArr[i]) * Math.sin(phiArr[j]));
-            b.push(radius * Math.sin(thetaArr[i]) * Math.sin(phiArr[j]));   
-            c.push(radius * Math.cos(phiArr[j]));
-        }
-    }
-
-
-    const dataitem = {
-        opacity: opacity,
-        color: 'rgb(211,211,211)',
-        type: 'mesh3d',
-        x: a,
-        y: b,
-        z: c,
-        lighting: {
-            ambient: 1,
-            diffuse: 0,
-            roughness: 0,
-            specular: 0,
-            fresnel: 0,
-        },
-    }   
-        
-
-    // Obtain the second half of the sphere by 
-    // duplicating  the upper semisphere ("..." operator before "dataitem") and 
-    // changing its "z" attribute into negative vales:
-    
-    var data = [
-        dataitem,
-        {...dataitem, z: c.map(v => -v)}
-    ];
-    
-    return {data:data, layout:layout};
-}
-
-
 var wordvis_data = null;
+var wordvis_settings = {};
 
-function draw_wordvis(graph, x_axis, y_axis) {
-    let words = wordvis_data.words;
-    let mus = wordvis_data.mus;
-
+function draw_wordvis() {
+    const x_axis = wordvis_settings['x_axis'];
+    const y_axis = wordvis_settings['y_axis'];
+    const clip = wordvis_settings['clip'];
+    const words = wordvis_data.words;
+    const mus = wordvis_data.mus;
     console.log('words=',words);
     console.log("mus",mus);
 
-    //let plot_val = words.Wtrans[0];
-    let plot_val = words.distances;
-    const median = calc_median(plot_val);
-    const mu = median; // plot_val.reduce((a, b) => a + b) / words.Wtrans[0].length;
-    const sigma = calc_stddev(plot_val)*0.9;
-    const cutoff = quantile(plot_val, 0.99);
-    const cutoff_W = cutoff-mus.Utrans[0][0];
-    console.log("median",median);
-    console.log("mu",mu);
-    console.log("sigma",sigma);
-    console.log("cutoff",cutoff);
+    console.log("clip",clip);
 
     var layout = {
-        height: 0.75*window.innerHeight,
-        width: 0.95*window.innerWidth,
+        height: window.innerHeight-120,
+        width: window.innerWidth,
         showlegend: false,
         //margin: {pad: 0},
         margin:{
@@ -274,264 +184,243 @@ function draw_wordvis(graph, x_axis, y_axis) {
         config: { responsive: true }
     };
 
-    graph = '2d';
-    if (graph == '2d') {
-        var x,y,trace2_x,trace2_y;
-        if (x_axis == 'freq') {x = words.frequencies; layout.xaxis.type='log' }
-        if (x_axis == 'dist') {x = words.distances; }
-        if (x_axis == 'norm') {x = words.norms; }
-        if (x_axis == 'vstar') {x = words.Wtrans[0]; trace2_x=mus.Utrans[0]; }
-        if (x_axis == 'subspace1') {x = words.Wtrans[1]; trace2_x=mus.Utrans[1]; }
-        if (x_axis == 'subspace2') {x = words.Wtrans[2]; trace2_x=mus.Utrans[2]; }
-        if (x_axis == 'subspace3') {x = words.Wtrans[3]; trace2_x=mus.Utrans[3]; }
-        if (y_axis == 'freq') {y = words.frequencies; layout.yaxis.type='log' }
-        if (y_axis == 'dist') {y = words.distances; }
-        if (y_axis == 'norm') {y = words.norms; }
-        if (y_axis == 'vstar') {y = words.Wtrans[0]; trace2_y=mus.Utrans[0]; }
-        if (y_axis == 'subspace1') {y = words.Wtrans[1]; trace2_y=mus.Utrans[1]; }
-        if (y_axis == 'subspace2') {y = words.Wtrans[2]; trace2_y=mus.Utrans[2]; }
-        if (y_axis == 'subspace3') {y = words.Wtrans[3]; trace2_y=mus.Utrans[3]; }
-        if (y_axis == 'histogram') {
-            var trace1 = {
-                x: x,
-                type: 'histogram',
-            };
+    var x,y,trace2_x,trace2_y;
+    if (x_axis == 'freq') {x = words.frequencies; layout.xaxis.type='log'; layout.xaxis.showexponent='all'; layout.xaxis.exponentformat='e'; }
+    if (x_axis == 'dist') {x = words.distances; }
+    if (x_axis == 'norm') {x = words.norms; }
+    if (x_axis == 'vstar') {x = words.Wtrans[0]; trace2_x=mus.Utrans[0]; }
+    if (x_axis == 'subspace1') {x = words.Wtrans[1]; trace2_x=mus.Utrans[1]; }
+    if (x_axis == 'subspace2') {x = words.Wtrans[2]; trace2_x=mus.Utrans[2]; }
+    if (x_axis == 'subspace3') {x = words.Wtrans[3]; trace2_x=mus.Utrans[3]; }
+    if (y_axis == 'freq') {y = words.frequencies; layout.yaxis.type='log'; layout.xaxis.showexponent='all'; layout.xaxis.exponentformat='e'; }
+    if (y_axis == 'dist') {y = words.distances; }
+    if (y_axis == 'norm') {y = words.norms; }
+    if (y_axis == 'vstar') {y = words.Wtrans[0]; trace2_y=mus.Utrans[0]; }
+    if (y_axis == 'subspace1') {y = words.Wtrans[1]; trace2_y=mus.Utrans[1]; }
+    if (y_axis == 'subspace2') {y = words.Wtrans[2]; trace2_y=mus.Utrans[2]; }
+    if (y_axis == 'subspace3') {y = words.Wtrans[3]; trace2_y=mus.Utrans[3]; }
+
+    var traces = [];
+    if (y_axis == 'histogram') {
+        traces.push({
+            x: x,
+            type: 'histogram',
+        });
+    }
+    else {
+        const dist_mode = calc_mode(words.distances);
+        const dist_hiclip = quantile(words.distances, clip);
+        const dist_loclip = dist_mode - (dist_hiclip-dist_mode);
+
+        var lo_x=[],lo_x_named=[],hi_x=[],lo_y=[],lo_y_named=[],hi_y=[],lo_words=[],lo_words_named=[],hi_words=[];
+        const x_bins = 40, y_bins=40;
+        const x_min = Math.min(...x), x_max = Math.max(...x), y_min = Math.min(...y), y_max = Math.max(...y);
+        var matrix = {};
+        function get_matrix_index(xpos,ypos) {
+            const x_matrix = Math.floor(x_bins*(x_max-xpos)/(x_max-x_min));
+            const y_matrix = Math.floor(y_bins*(y_max-ypos)/(y_max-y_min));
+            return [x_matrix, y_matrix];
+        };
+        var words_selected=0, words_frequency=0, total_frequency=0;
+
+        for (let i=0; i<words.distances.length; i++) {
+            total_frequency += words.frequencies[i];
+            const matrix_pos = get_matrix_index(x[i], y[i]);
+            if (words.distances[i] <= dist_loclip) {
+                words_selected += 1;
+                words_frequency += words.frequencies[i];
+                lo_x.push(x[i]);
+                lo_y.push(y[i]);
+                lo_words.push(words.words[i]);
+                if (!(matrix_pos in matrix)) {
+                    matrix[matrix_pos] = words.words[i];
+                    matrix[[matrix_pos[0]-4, matrix_pos[1]]] = words.words[i];
+                    matrix[[matrix_pos[0]+4, matrix_pos[1]]] = words.words[i];
+                    matrix[[matrix_pos[0]-3, matrix_pos[1]]] = words.words[i];
+                    matrix[[matrix_pos[0]+3, matrix_pos[1]]] = words.words[i];
+                    matrix[[matrix_pos[0]-2, matrix_pos[1]]] = words.words[i];
+                    matrix[[matrix_pos[0]+2, matrix_pos[1]]] = words.words[i];
+                    matrix[[matrix_pos[0]-1, matrix_pos[1]]] = words.words[i];
+                    matrix[[matrix_pos[0]+1, matrix_pos[1]]] = words.words[i];
+                    matrix[[matrix_pos[0]-1, matrix_pos[1]-1]] = words.words[i];
+                    matrix[[matrix_pos[0]+1, matrix_pos[1]-1]] = words.words[i];
+                    matrix[[matrix_pos[0]-1, matrix_pos[1]+1]] = words.words[i];
+                    matrix[[matrix_pos[0]+1, matrix_pos[1]+1]] = words.words[i];
+                    matrix[[matrix_pos[0], matrix_pos[1]-1]] = words.words[i];
+                    matrix[[matrix_pos[0], matrix_pos[1]+1]] = words.words[i];
+                    lo_x_named.push(x[i]);
+                    lo_y_named.push(y[i]);
+                    lo_words_named.push(words.words[i]);
+                }
+            }
+            else {
+                hi_x.push(x[i]);
+                hi_y.push(y[i]);
+                hi_words.push(words.words[i]);
+            }
         }
-        else {
-            var trace1 = {
-                x: x,
-                y: y,
-                text: words.words,
-                marker: { size: 2, sizemode:'area' },
-                mode: 'markers',
-                type: 'scattergl',
-            };
-        }
+        console.log("matrix",matrix);
+        traces.push({
+            x: hi_x,
+            y: hi_y,
+            //marker: { size: 5, color: 'rgba(127,127,127,0.5)', opacity: 0.15 },
+            marker: { size: 5, color: 'rgba(180,180,180,0.5)', opacity: 0.25 },
+            mode: 'markers',
+            hovermode: false,
+            hoverinfo: 'skip',
+            type: 'scattergl',
+        });
+        traces.push({
+            x: lo_x,
+            y: lo_y,
+            text: lo_words,
+            marker: { size: 5, opacity: 0.7, color:'rgba(255,210,127,1)' },
+            //marker: { size: 5, opacity: 0.5, color:'rgba(255,165,0,1)' },
+            //marker: { size: 0, opacity: 0 },
+            mode: 'markers',
+            type: 'scattergl',
+        });
+        traces.push({
+            x: lo_x_named,
+            y: lo_y_named,
+            text: lo_words_named,
+            marker: { size: 0, opacity: 0 },
+            textposition: 'left',
+            mode: 'markers+text',
+            hoverinfo: 'skip',
+            type: 'scattergl',
+        });
+    }
+
+    /*                                                                 
+    if (trace2_x && trace2_y) { 
         var trace2 = {
             x: trace2_x,
             y: trace2_y,
             type: 'scattergl',
             hoverinfo: 'skip',
         };
-        var traces = [trace1, trace2];
-
-        if ((x_axis.includes('subspace') || x_axis.includes('vstar')) 
-         && (y_axis.includes('subspace') || y_axis.includes('vstar'))) {
-            var color = 'rgba(255, 165, 0, 1)';
-            if (x_axis.includes('vstar') || y_axis.includes('vstar')) {
-                color = 'rgba(50, 171, 96, 1)';
-            }
-            layout.shapes = [
-                {
-                    type: 'circle',
-                    xref: 'x',
-                    yref: 'y',
-                    x0: -1,
-                    y0: -1,
-                    x1: 1,
-                    y1: 1,
-                    line: {
-                      color: color
-                    }
-                },
-            ];
-        }
-        if (x_axis == 'vstar' && y_axis.includes('subspace')) {
-        }
-        /*
-        var trace2 = {
-            x: mus.Utrans[0],
-            y: mus.Utrans[1],
-            type: 'scattergl',
-            hoverinfo: 'skip',
-        };
-        */
+        traces.push(trace2);
     }
-    Plotly.newPlot('wordvis', traces, layout);
-    document.getElementById("angle").innerHTML = wordvis_data['mus']['angles'][0].toFixed(2) ;
-    
-    /*
-    if (graph == 'freq') {
-        layout.xaxis.tickformat = '.1e';
-        layout.xaxis.type = 'log';
-        var trace1 = {
-            x: words.frequencies,
-            y: words.Wtrans[1],
-            text: words.words,
-            marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
-            mode: 'markers+text',
-            type: 'scattergl',
-        };
-        var traces = [trace1];
-    }
-    if (graph == '2d-hist') {
 
-        const min_val = Math.min.apply(null, plot_val);
-        const max_val = Math.max.apply(null, plot_val);
-        var dist_xs = [];
-        var dist_ys = [];
-        for (var x=min_val ; x<= max_val; x += (max_val-min_val)/1000) {
-            let y = 1/Math.sqrt(sigma*Math.PI*2) * Math.exp( - 1/2 * ((x-mu)/sigma)**2);
-            //let y = 1/sigma* Math.exp( - Math.abs(x-mu)/sigma);
-            dist_xs.push(x); 
-            dist_ys.push(y*400);
+    if (x_axis == 'dist') {
+
+        const median = calc_median(x);
+        const mode = calc_mode(x);
+        console.log("median",median);
+        console.log("mode",mode);
+        const hi = quantile(x, clip);
+        const lo = mode - (hi - mode);
+
+        const m = calc_mean(x);
+        const sigma = calc_stddev(x);
+        const gamma1 = calc_skewness(x)/10;
+
+        console.log("m",m);
+        console.log("sigma",sigma);
+        console.log("gamma1",gamma1);
+
+        let mu_hat = m - sigma*Math.pow(gamma1/2, 1/3);
+        if (gamma1<0) {
+            mu_hat = m + sigma*Math.pow(-gamma1/2, 1/3);
         }
-        console.log("dist_xs",dist_xs);
-        console.log("dist_ys",dist_ys);
+        console.log("mu_hat",mu_hat);
 
         layout.shapes = [
             {
                 type: 'line',
+                xref: 'x',
                 yref: 'paper',
-                x0: median,
+                x0: m,
                 y0: 0,
-                x1: median,
+                x1: m,
                 y1: 1,
                 line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
+                  color: 'rgb(0,255,0)'
                 }
             },
             {
                 type: 'line',
+                xref: 'x',
                 yref: 'paper',
-                x0: cutoff,
+                x0: m-sigma,
                 y0: 0,
-                x1: cutoff,
+                x1: m-sigma,
                 y1: 1,
                 line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
+                  color: 'rgb(0,255,0)'
                 }
             },
             {
                 type: 'line',
+                xref: 'x',
                 yref: 'paper',
-                x0: median + median - cutoff,
+                x0: m+sigma,
                 y0: 0,
-                x1: median + median - cutoff,
+                x1: m+sigma,
                 y1: 1,
                 line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
+                  color: 'rgb(0,255,0)'
                 }
             },
-        ];
-        var trace1 = {
-            x: plot_val,
-            type: 'histogram',
-        };
-        var trace2 = {
-            x: dist_xs,
-            y: dist_ys,
-            //yaxis: 'y2',
-            type: 'scatter',
-        };
-        var traces = [trace1, trace2];
+            {
+                type: 'line',
+                xref: 'x',
+                yref: 'paper',
+                x0: lo,
+                y0: 0,
+                x1: lo,
+                y1: 1,
+                line: {
+                  color: 'rgb(0,0,255)'
+                }
+            },
+            {
+                type: 'line',
+                xref: 'x',
+                yref: 'paper',
+                x0: hi,
+                y0: 0,
+                x1: hi,
+                y1: 1,
+                line: {
+                  color: 'rgb(0,0,255)'
+                }
+            },
+            {
+                type: 'line',
+                xref: 'x',
+                yref: 'paper',
+                x0: mode,
+                y0: 0,
+                x1: mode,
+                y1: 1,
+                line: {
+                  color: 'rgb(0,0,255)'
+                }
+            },
+            {
+                type: 'line',
+                xref: 'x',
+                yref: 'paper',
+                x0: mu_hat,
+                y0: 0,
+                x1: mu_hat,
+                y1: 1,
+                line: {
+                  color: 'rgb(255,0,0)'
+                }
+            },
+        ]
+        console.log("layout",layout);
     }
-    if (graph == '2d-dist-norms') {
-        layout.shapes = [
-            {
-                type: 'line',
-                yref: 'paper',
-                x0: median,
-                y0: 0,
-                x1: median,
-                y1: 1,
-                line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
-                }
-            },
-            {
-                type: 'line',
-                yref: 'paper',
-                x0: cutoff,
-                y0: 0,
-                x1: cutoff,
-                y1: 1,
-                line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
-                }
-            },
-            {
-                type: 'line',
-                yref: 'paper',
-                x0: median + median - cutoff,
-                y0: 0,
-                x1: median + median - cutoff,
-                y1: 1,
-                line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
-                }
-            },
-        ];
-        var trace1 = {
-            x: words.distances,
-            y: words.norms,
-            text: words.words,
-            //marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
-            //mode: 'markers+text',
-            marker: { size: 2, sizemode:'area' },
-            mode: 'markers',
-            type: 'scattergl',
-        };
-        var traces = [trace1];
-    }
-    if (graph == '2d-dist') {
-        layout.shapes = [
-            {
-                type: 'line',
-                yref: 'paper',
-                x0: median,
-                y0: 0,
-                x1: median,
-                y1: 1,
-                line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
-                }
-            },
-            {
-                type: 'line',
-                yref: 'paper',
-                x0: cutoff,
-                y0: 0,
-                x1: cutoff,
-                y1: 1,
-                line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
-                }
-            },
-            {
-                type: 'line',
-                yref: 'paper',
-                x0: median + median - cutoff,
-                y0: 0,
-                x1: median + median - cutoff,
-                y1: 1,
-                line: {
-                    color: 'rgb(50, 171, 96)',
-                    width: 3
-                }
-            },
-        ];
-        var trace1 = {
-            x: words.distances,
-            y: words.Wtrans[1],
-            text: words.words,
-            //marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
-            //mode: 'markers+text',
-            marker: { size: 2, sizemode:'area' },
-            mode: 'markers',
-            type: 'scattergl',
-        };
-        var traces = [trace1];
-    }
-    if (graph == '2d') {
+
+    if ((x_axis.includes('subspace') || x_axis.includes('vstar')) 
+     && (y_axis.includes('subspace') || y_axis.includes('vstar'))) {
+        var color = 'rgba(255, 165, 0, 1)';
+        if (x_axis.includes('vstar') || y_axis.includes('vstar')) {
+            color = 'rgba(50, 171, 96, 1)';
+        }
         layout.shapes = [
             {
                 type: 'circle',
@@ -542,106 +431,30 @@ function draw_wordvis(graph, x_axis, y_axis) {
                 x1: 1,
                 y1: 1,
                 line: {
-                  color: 'rgba(50, 171, 96, 1)'
+                  color: color
                 }
             },
-            {
-                type: 'circle',
-                xref: 'x',
-                yref: 'y',
-                x0: -cutoff_W,
-                y0: -cutoff_W,
-                x1: cutoff_W,
-                y1: cutoff_W,
-                line: {
-                  color: 'rgba(50, 171, 96, 1)'
-                }
-            }
         ];
-        var trace1 = {
-            x: words.Wtrans[0],
-            y: words.Wtrans[1],
-            text: words.words,
-            //marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
-            //mode: 'markers+text',
-            marker: { size: 2, sizemode:'area' },
-            mode: 'markers',
-            type: 'scattergl',
-        };
-        var trace2 = {
-            x: mus.Utrans[0],
-            y: mus.Utrans[1],
-            type: 'scattergl',
-            hoverinfo: 'skip',
-        };
-        var traces = [trace1, trace2];
     }
-    if (graph == '3d') {
-        layout.scene = {
-            xaxis: {
-                autorange: true,
-                showgrid: false,
-                zeroline: false,
-                showline: false,
-                autotick: true,
-                ticks: '',
-                showticklabels: false
-            },
-            yaxis: {
-                autorange: true,
-                showgrid: false,
-                zeroline: false,
-                showline: false,
-                autotick: true,
-                ticks: '',
-                showticklabels: false
-            },
-            zaxis: {
-                autorange: true,
-                showgrid: false,
-                zeroline: false,
-                showline: false,
-                autotick: true,
-                ticks: '',
-                showticklabels: false
-            },
-        };
-        let Wnorm = [[], [], []];
-        for (let i=0; i<words.Wtrans[0].length; i++) {
-            let norm = (words.Wtrans[0][i]**2 + words.Wtrans[1][i]**2 + words.Wtrans[2][i]**2)**(0.5)
-            Wnorm[0].push(words.Wtrans[0][i]/norm);
-            Wnorm[1].push(words.Wtrans[1][i]/norm);
-            Wnorm[2].push(words.Wtrans[2][i]/norm);
-        }
-        var trace1 = {
-            x: Wnorm[0],
-            y: Wnorm[1],
-            z: Wnorm[2],
-            text: words.words,
-            marker: { size: 1e-10, sizeref:4000, sizemode:'area' },
-            mode: 'markers+text',
-            type: 'scatter3d',
-        };
-        var trace2 = {
-            x: mus.Utrans[0],
-            y: mus.Utrans[1],
-            z: mus.Utrans[2],
-            type: 'scatter3d',
-            hoverinfo: 'skip',
-        };
-        let sphere = getSphereData('sphere', 0.15, 0.15, 'rgb(230,230,230)', 1, 0.9);
-        var traces = [sphere.data[0], sphere.data[1], trace1, trace2];
-    }
+    */
+
     Plotly.newPlot('wordvis', traces, layout);
-    document.getElementById("angle").innerHTML = wordvis_data['mus']['angles'][0].toFixed(2) ;
-     */
+    document.getElementById("min_angle").innerHTML = Math.min(...wordvis_data['mus']['angles']).toFixed(2) ;
+    document.getElementById("median_angle").innerHTML = calc_median(wordvis_data['mus']['angles']).toFixed(2) ;
+    document.getElementById("max_angle").innerHTML = Math.max(...wordvis_data['mus']['angles']).toFixed(2) ;
+    document.getElementById("words_selected").innerHTML = words_selected.toFixed(2) ;
+    document.getElementById("words_fraction").innerHTML = (words_selected/words.words.length).toFixed(2) ;
+    document.getElementById("total_frequency").innerHTML = (words_frequency/total_frequency).toFixed(2) ;
 }
 
 function load_wordvis() {
     const xhttp = new XMLHttpRequest();
     xhttp.onload = function() {
         wordvis_data = JSON.parse(this.responseText);
-        draw_wordvis(graph, x_axis, y_axis);
+        wordvis_settings['x_axis'] = x_axis;
+        wordvis_settings['y_axis'] = y_axis;
+        wordvis_settings['clip'] = clip;
+        draw_wordvis();
     }
     var words = getParameterByName('words');
     var lang_in = getParameterByName('lang_in');
@@ -649,11 +462,11 @@ function load_wordvis() {
     var dim = getParameterByName('dim');
     var max_subspace_dim = getParameterByName('max_subspace_dim');
     var a = getParameterByName('a');
+    var clip = getParameterByName('clip');
     var n = getParameterByName('n');
     var n_rand = getParameterByName('n_rand');
     var n_top = getParameterByName('n_top');
     var n_top_take_every = getParameterByName('n_top_take_every');
-    var graph = getParameterByName('graph');
     var x_axis = getParameterByName('x_axis');
     var y_axis = getParameterByName('y_axis');
     var pca_dims = getParameterByName('pca_dims');
@@ -666,12 +479,12 @@ function load_wordvis() {
     if (dim) url+="&dim="+dim;
     if (max_subspace_dim) url+="&max_subspace_dim="+max_subspace_dim;
     if (a) url+="&a="+a;
+    if (clip) url+="&clip="+clip;
     if (n) url+="&n="+n;
     if (n_rand) url+="&n_rand="+n_rand;
     if (n_top) url+="&n_top="+n_top;
     if (n_top_take_every) url+="&n_top_take_every="+n_top_take_every;
     if (center) url+="&center="+center;
-    if (graph) url+="&graph="+graph;
     if (x_axis) url+="&x_axis="+x_axis;
     if (y_axis) url+="&y_axis="+y_axis;
     if (pca_dims) url+="&pca_dims="+pca_dims;
@@ -681,6 +494,7 @@ function load_wordvis() {
 }
 load_wordvis();
 
+window.onresize = draw_wordvis;
 </script>
 {% endblock %}
 

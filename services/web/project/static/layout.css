@@ -13,10 +13,12 @@ header {
   grid-column-end: 3;
 }
 
+/*
 main {
   padding-top: 0.5rem;
-  padding-bottom: 2.5rem;    /* Footer height */
+  padding-bottom: 2.5rem;
 }
+*/
 
 .logo {
   //padding:10px;
@@ -97,10 +99,12 @@ h3 {
     font-style: italic;
 }
 
+/*
 main {
     position: relative;
     padding-top: 10px;
 }
+*/
 
 h2 {
     margin: 0px;

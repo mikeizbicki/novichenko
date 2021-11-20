@@ -23,9 +23,7 @@
         {% endblock %}
         </main>
         <!--
-        {{comments|safe}}
-        -->
-		<footer>
+        <footer>
         <div class=debug>
             <input id="debug_collapse" class="toggle" type="checkbox" checked>
             <label for="debug_collapse" class="lbl-toggle dark">debug information</label>
@@ -56,7 +54,6 @@
                             <li>
                                 <strong>binds</strong>
                                 <table>
-                                    <!--tr><td>bind parameter</td><td>value</td></tr>-->
                                     {% for k,v in query['binds'].items() %}
                                     <tr><td><span class=code>:{{k}}</span></td><td><span class=code>=</span></td><td><span class=code>{{v}}</span></td></tr>
                                     {% endfor %}
@@ -69,5 +66,6 @@
             </div>
         </div>
 		</footer>
+        -->
     </body>
 </html>
